@@ -377,6 +377,12 @@
     </div>
 
     <!-- MANAGEMENT -->
+      </div>
+    </div>
+
+    <!-- Security Section in view-players -->
+    <div class="view" id="view-players-security" style="display:none;"></div> <!-- Not using a separate view, just appending to content wrap of view-players -->
+          
     <div class="view" id="view-players">
       <div class="content-wrap">
         <div class="row gap-12 mb-8" style="justify-content:space-between">
@@ -393,6 +399,19 @@
           <div class="sn-list" id="sn-list"></div>
           <button class="btn btn-primary btn-full mt-16" onclick="openAddSeason()">🏆 Neue Saison erstellen</button>
         </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;margin-top:40px;">
+          <div class="sec-title">Sicherheit</div>
+        </div>
+        <div class="det-cell" style="margin-bottom:16px;">
+          <div class="det-lbl">Admin-PIN</div>
+          <div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Wenn gesetzt, wird das Eintragen neuer Runden und die Verwaltung gesperrt.</div>
+          <div style="display:flex;gap:8px;">
+            <input type="password" id="set-pin-input" class="form-input" placeholder="Neuer PIN (z.B. 1234)" inputmode="numeric" style="flex:1;">
+            <button class="btn btn-primary" onclick="setAdminPin()">Speichern</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -522,12 +541,28 @@
   </div>
 </div>
 
+<!-- MODAL: ADMIN PIN -->
+<div class="modal-wrap" id="modal-admin-pin">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">🔒 Gesperrt</div>
+    <div class="modal-sub">Bitte Admin-PIN eingeben, um diesen Bereich zu öffnen.</div>
+    <div class="form-group">
+      <input type="password" id="pin-input" class="form-input" placeholder="****" inputmode="numeric" style="text-align:center; font-size:24px; letter-spacing:10px;">
+    </div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-admin-pin'); navigate('dashboard');">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="verifyPin()">Entsperren</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ════════════════════════════════════
    STATE & SUPABASE
 ════════════════════════════════════ */
-const STORE    = 'schnauz_v2';
-let db = { players: [], sessions: [], seasons: [] };
+const STORE    = 'schnauz_tracker_v2';
+let db = { players: [], sessions: [], seasons: [], settings: { adminPin: null } };
 let filterSeasonId = '__all__';
 let playerSubTab   = 'players';
 let currentView    = 'dashboard';
@@ -555,22 +590,8 @@ async function load() {
   // 1. Local fallback
   let localRaw = null;
   try { localRaw = localStorage.getItem(STORE); } catch(e) {}
-  let localDb = { players:[], sessions:[], seasons:[] };
+  let localDb = { players:[], sessions:[], seasons:[], settings: { adminPin: null } };
   if (localRaw) { try { localDb = JSON.parse(localRaw); } catch(e) {} }
-
-  // 1b. Try to recover from V1 if local V2 is basically empty (e.g. wiped)
-  if (!localDb.players || localDb.players.length === 0) {
-    try {
-      const v1Raw = localStorage.getItem('schnauz_tracker_v1');
-      if (v1Raw) {
-        const parsed = JSON.parse(v1Raw);
-        if (parsed.players && parsed.players.length > 0) {
-          localDb = parsed;
-          if (!localDb.seasons) localDb.seasons = [];
-        }
-      }
-    } catch (e) {}
-  }
 
   // 2. Fetch from Supabase
   let data = null, error = null;
@@ -587,7 +608,6 @@ async function load() {
   }
   
   if (error || !data) {
-    console.error("Supabase Error:", error);
     statusEl.textContent = '☁️ ❌ Offline';
     db = localDb; // Fallback
   } else {
@@ -606,11 +626,13 @@ async function load() {
       db.players  = cloudDb.players  || [];
       db.sessions = cloudDb.sessions || [];
       db.seasons  = cloudDb.seasons  || [];
+      db.settings = cloudDb.settings || { adminPin: null };
       statusEl.textContent = '☁️ ✅ Live';
     }
   }
 
   /* Bootstrap checks */
+  if (!db.settings) db.settings = { adminPin: null };
   if (db.seasons.length === 0) {
     const sid = uid();
     const earliest = db.sessions.length ? db.sessions.reduce((m,s) => s.date < m ? s.date : m, db.sessions[0].date) : todayStr();
@@ -635,6 +657,7 @@ async function load() {
           db.players  = newDb.players  || [];
           db.sessions = newDb.sessions || [];
           db.seasons  = newDb.seasons  || [];
+          db.settings = newDb.settings || { adminPin: null };
           try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
           
           if (filterSeasonId !== '__all__' && !db.seasons.find(s => s.id === filterSeasonId)) {
@@ -853,11 +876,20 @@ function setSF(id) { filterSeasonId = id; renderView(currentView); }
 /* ════════════════════════════════════
    NAVIGATION
 ════════════════════════════════════ */
+let pendingView = null;
 function navigate(view) {
-  currentView = view;
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  if ((view === 'new-session' || view === 'players') && db.settings?.adminPin && localStorage.getItem('isAdmin') !== 'true') {
+    pendingView = view;
+    document.getElementById('pin-input').value = '';
+    openModal('modal-admin-pin');
+    return;
+  }
+  
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view===view));
   const el = document.getElementById(`view-${view}`);
+  if(!el) return;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   el.classList.add('active');
   const wrap = el.querySelector('.content-wrap');
   if (wrap) { wrap.style.animation='none'; void wrap.offsetWidth; wrap.style.animation=''; }
@@ -879,8 +911,6 @@ function renderView(v) {
    DASHBOARD
 ════════════════════════════════════ */
 function renderDash() {
-  document.getElementById('hdr-date').textContent =
-    new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
   renderSeasonBar('sn-bar-dash');
 
   const fSess = filteredSessions();
@@ -1144,6 +1174,8 @@ function renderPlayersTab() {
         <button class="btn btn-secondary btn-icon" onclick="confirmDelPlayer('${p.id}')" title="Löschen">🗑️</button>
       </div>`;
   }).join('');
+  const pinInp = document.getElementById('set-pin-input');
+  if (pinInp) pinInp.value = db.settings?.adminPin || '';
 }
 
 /* ── Seasons Tab ── */
