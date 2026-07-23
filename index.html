@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Schnauz Tracker</title>
+  <meta name="description" content="Dein digitaler Schnauz-Tracker für die Mittagspause – Runden, Stats und Geldstände im Blick.">
+  <meta name="theme-color" content="#0c0800">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Schnauz">
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root {
+      --bg: #0c0800; --surface: #141000; --card: #1c1600; --card-hover: #231c00;
+      --border: #2a1e00; --border-light: #3a2c00;
+      --accent: #f59e0b; --accent-dark: #d97706; --accent-darker: #b45309;
+      --accent-light: #fbbf24; --accent-glow: rgba(245,158,11,0.12);
+      --accent-glow-strong: rgba(245,158,11,0.28);
+      --text: #fef3c7; --text-muted: #b45309; --text-dim: #6b4310;
+      --success: #10b981; --success-bg: rgba(16,185,129,0.10);
+      --danger: #f87171; --danger-bg: rgba(248,113,113,0.10);
+      --info: #60a5fa; --info-bg: rgba(96,165,250,0.10);
+      --nav-h: 68px; --header-h: 58px; --sidebar-w: 220px;
+      --r-sm: 8px; --r: 12px; --r-lg: 16px; --r-xl: 22px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Outfit', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+
+    /* ── LAYOUT ── */
+    #app { display: flex; flex-direction: column; min-height: 100dvh; }
+    #app-header {
+      position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+      background: rgba(12,8,0,0.94); backdrop-filter: blur(20px) saturate(160%);
+      border-bottom: 1px solid var(--border); z-index: 100;
+      display: flex; align-items: center; padding: 0 16px;
+    }
+    .header-inner { width: 100%; max-width: 960px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .header-brand { display: flex; align-items: center; gap: 10px; }
+    .brand-icon { font-size: 26px; filter: drop-shadow(0 0 10px rgba(245,158,11,0.6)); animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+    .brand-name { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent) 60%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .header-date { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    #main-content { flex: 1; padding-top: var(--header-h); padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+    .content-wrap { max-width: 700px; margin: 0 auto; padding: 20px 16px; animation: fadeIn 0.28s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── NAV ── */
+    #bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
+      background: rgba(12,8,0,0.96); backdrop-filter: blur(20px) saturate(160%);
+      border-top: 1px solid var(--border); display: flex; align-items: center;
+      padding: 0 4px; padding-bottom: env(safe-area-inset-bottom); z-index: 100;
+    }
+    .nav-item {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; padding: 8px 2px; border: none; background: transparent; cursor: pointer;
+      border-radius: var(--r); color: var(--text-dim); transition: color 0.2s;
+      font-family: inherit; position: relative;
+    }
+    .nav-item:hover { color: var(--text-muted); }
+    .nav-item.active { color: var(--accent); }
+    .nav-item.active .nav-icon { transform: scale(1.12); }
+    .nav-icon { font-size: 21px; line-height: 1; transition: transform 0.2s; }
+    .nav-label { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; }
+    @media (min-width: 768px) {
+      #bottom-nav { position: fixed; left: 0; top: var(--header-h); bottom: 0; right: auto; width: var(--sidebar-w); height: auto; flex-direction: column; align-items: stretch; padding: 16px 10px; border-top: none; border-right: 1px solid var(--border); gap: 4px; }
+      .nav-item { flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px 14px; border-radius: var(--r); }
+      .nav-icon { font-size: 20px; } .nav-label { font-size: 14px; }
+      #main-content { padding-left: var(--sidebar-w); padding-bottom: 32px; }
+    }
+
+    /* ── VIEWS ── */
+    .view { display: none; } .view.active { display: block; }
+
+    /* ── CARDS ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; transition: border-color 0.2s; }
+    .card:hover { border-color: var(--border-light); }
+    .card.glow { border-color: var(--accent-darker); box-shadow: 0 0 24px var(--accent-glow); }
+
+    /* ── BUTTONS ── */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 20px; border-radius: var(--r); border: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600; transition: all 0.18s; text-decoration: none; white-space: nowrap; user-select: none; min-height: 44px; }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent-dark) 100%); color: #000; box-shadow: 0 4px 16px var(--accent-glow-strong); }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 22px var(--accent-glow-strong); }
+    .btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border-light); }
+    .btn-secondary:hover { background: var(--card-hover); }
+    .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--border-light); }
+    .btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,0.25); }
+    .btn-danger:hover { background: rgba(248,113,113,0.18); }
+    .btn-info { background: var(--info-bg); color: var(--info); border: 1px solid rgba(96,165,250,0.3); }
+    .btn-info:hover { background: rgba(96,165,250,0.18); }
+    .btn-sm { padding: 7px 14px; font-size: 12px; min-height: 36px; }
+    .btn-lg { padding: 14px 28px; font-size: 16px; border-radius: var(--r-lg); min-height: 52px; }
+    .btn-full { width: 100%; } .btn-icon { width: 38px; height: 38px; padding: 0; border-radius: var(--r-sm); flex-shrink: 0; }
+
+    /* ── FORM ── */
+    .form-group { margin-bottom: 18px; }
+    .form-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.9px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 7px; }
+    .form-input { width: 100%; background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--r); color: var(--text); font-family: inherit; font-size: 15px; padding: 11px 14px; transition: border-color 0.2s, box-shadow 0.2s; outline: none; appearance: none; min-height: 44px; }
+    .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(60%) sepia(80%) saturate(300%) hue-rotate(5deg); cursor: pointer; }
+    select.form-input { cursor: pointer; }
+    .input-group { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--r); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s; }
+    .input-group:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .input-prefix { padding: 11px 12px; color: var(--text-muted); font-size: 13px; font-weight: 700; border-right: 1px solid var(--border); background: var(--card); flex-shrink: 0; }
+    .input-group .form-input { border: none; box-shadow: none; background: transparent; }
+    .input-group .form-input:focus { box-shadow: none; }
+
+    /* ── STAKE PILLS & CHIPS ── */
+    .stake-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .stake-pill { flex: 1; min-width: 60px; padding: 10px 8px; border-radius: var(--r); border: 1px solid var(--border-light); background: var(--surface); color: var(--text-muted); cursor: pointer; font-size: 14px; font-weight: 700; text-align: center; transition: all 0.18s; user-select: none; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+    .stake-pill.on { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+    .chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { padding: 9px 18px; border-radius: 24px; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-muted); cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.18s; user-select: none; min-height: 40px; display: flex; align-items: center; }
+    .chip.on { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+    /* ── SEASON BAR ── */
+    .sn-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; margin-bottom: 14px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .sn-bar::-webkit-scrollbar { display: none; }
+    .sn-chip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border-light); background: var(--surface); color: var(--text-muted); cursor: pointer; font-size: 12px; font-weight: 700; transition: all 0.18s; white-space: nowrap; min-height: 32px; }
+    .sn-chip:hover { color: var(--text); border-color: var(--accent-darker); }
+    .sn-chip.on { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+    .sn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; display: inline-block; }
+
+    /* ── SUB-TABS ── */
+    .sub-tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 4px; margin-bottom: 16px; }
+    .sub-tab { flex: 1; padding: 9px 8px; border: none; border-radius: var(--r-sm); background: transparent; color: var(--text-muted); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s; min-height: 40px; }
+    .sub-tab.active { background: var(--card); color: var(--text); }
+
+    /* ── BADGES ── */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .b-gold    { background: rgba(245,158,11,0.15); color: var(--accent-light); border: 1px solid rgba(245,158,11,0.3); }
+    .b-success { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
+    .b-danger  { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
+    .b-info    { background: var(--info-bg); color: var(--info); border: 1px solid rgba(96,165,250,0.3); }
+    .b-muted   { background: rgba(255,255,255,0.04); color: var(--text-muted); border: 1px solid var(--border); }
+
+    /* ── SECTION HEADER ── */
+    .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .sec-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
+
+    /* ── AVATARS ── */
+    .avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #000; flex-shrink: 0; }
+    .av-40 { width: 40px; height: 40px; font-size: 14px; } .av-32 { width: 32px; height: 32px; font-size: 12px; } .av-28 { width: 28px; height: 28px; font-size: 11px; }
+    .ac-0 { background: linear-gradient(135deg,#fbbf24,#d97706); } .ac-1 { background: linear-gradient(135deg,#60a5fa,#3b82f6); } .ac-2 { background: linear-gradient(135deg,#34d399,#10b981); }
+    .ac-3 { background: linear-gradient(135deg,#f87171,#ef4444); } .ac-4 { background: linear-gradient(135deg,#a78bfa,#7c3aed); } .ac-5 { background: linear-gradient(135deg,#fb923c,#ea580c); }
+    .ac-6 { background: linear-gradient(135deg,#38bdf8,#0284c7); } .ac-7 { background: linear-gradient(135deg,#e879f9,#a21caf); } .ac-8 { background: linear-gradient(135deg,#4ade80,#15803d); }
+    .ac-9 { background: linear-gradient(135deg,#fde68a,#92400e); }
+
+    /* ── EMPTY STATE ── */
+    .empty { text-align: center; padding: 48px 24px; color: var(--text-dim); }
+    .empty-ico { font-size: 52px; margin-bottom: 14px; opacity: 0.45; }
+    .empty-ttl { font-size: 17px; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); }
+    .empty-sub { font-size: 13px; }
+
+    /* ── MODALS ── */
+    .modal-wrap { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.82); backdrop-filter: blur(6px); z-index: 200; align-items: flex-end; justify-content: center; }
+    @media (min-width: 600px) { .modal-wrap { align-items: center; } }
+    .modal-wrap.open { display: flex; }
+    .modal { background: var(--card); border: 1px solid var(--border-light); border-radius: var(--r-xl) var(--r-xl) 0 0; padding: 24px 20px; width: 100%; max-width: 520px; max-height: 92dvh; overflow-y: auto; animation: slideUp 0.28s cubic-bezier(0.34,1.56,0.64,1); }
+    @media (min-width: 600px) { .modal { border-radius: var(--r-xl); animation: popIn 0.25s ease; } }
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes popIn  { from { transform: scale(0.93); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal-handle { width: 40px; height: 4px; background: var(--border-light); border-radius: 2px; margin: -8px auto 18px; }
+    @media (min-width: 600px) { .modal-handle { display: none; } }
+    .modal-title { font-size: 19px; font-weight: 800; margin-bottom: 4px; }
+    .modal-sub   { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+
+    /* ── TOASTS ── */
+    #toasts { position: fixed; top: calc(var(--header-h) + 12px); left: 50%; transform: translateX(-50%); z-index: 400; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast { background: var(--card); border: 1px solid var(--border-light); border-radius: var(--r); padding: 10px 18px; font-size: 13px; font-weight: 600; white-space: nowrap; animation: toastIn 0.26s ease; box-shadow: var(--shadow); }
+    .toast.ok  { border-color: rgba(16,185,129,0.4); color: var(--success); }
+    .toast.err { border-color: rgba(248,113,113,0.4); color: var(--danger); }
+    @keyframes toastIn { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* ── DASHBOARD ── */
+    .hero { background: linear-gradient(160deg,#1e1500 0%,#0d0900 100%); border: 1px solid var(--border); border-radius: var(--r-xl); padding: 22px 20px; margin-bottom: 16px; position: relative; overflow: hidden; }
+    .hero::before { content: '♠♣♥♦'; position: absolute; right: -16px; top: -8px; font-size: 88px; opacity: 0.035; line-height: 1; letter-spacing: -12px; pointer-events: none; }
+    .hero-greet { font-size: 12px; color: var(--text-muted); margin-bottom: 3px; }
+    .hero-title { font-size: 22px; font-weight: 800; }
+    .quick-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 18px; }
+    @media (min-width: 500px) { .quick-grid { grid-template-columns: repeat(4,1fr); } }
+    .qstat { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 10px; text-align: center; }
+    .qstat-val { font-size: 22px; font-weight: 800; } .qstat-lbl { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    .lb-list { display: flex; flex-direction: column; gap: 8px; }
+    .lb-item { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; cursor: pointer; transition: all 0.18s; }
+    .lb-item:hover { border-color: var(--border-light); transform: translateX(2px); }
+    .lb-rank { font-size: 20px; min-width: 30px; text-align: center; } .lb-name { flex: 1; min-width: 0; }
+    .lb-pname { font-size: 15px; font-weight: 700; } .lb-psub { font-size: 11px; color: var(--text-dim); }
+    .lb-bal { font-size: 16px; font-weight: 800; white-space: nowrap; }
+    .pos { color: var(--success); } .neg { color: var(--danger); } .zer { color: var(--text-muted); }
+
+    /* ── SESSION ITEMS ── */
+    .sess-list { display: flex; flex-direction: column; gap: 8px; }
+    .sess-item { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; cursor: pointer; transition: all 0.18s; }
+    .sess-item:hover { border-color: var(--border-light); background: var(--card-hover); }
+    .sess-datebox { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 8px; text-align: center; min-width: 44px; flex-shrink: 0; }
+    .sess-day { font-size: 20px; font-weight: 800; line-height: 1; } .sess-mon { font-size: 9px; color: var(--accent); font-weight: 700; text-transform: uppercase; }
+    .sess-info { flex: 1; min-width: 0; }
+    .sess-win { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .sess-names { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sess-pot { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; flex-shrink: 0; }
+
+    /* ── WIZARD ── */
+    .wiz-progress { display: flex; gap: 6px; margin-bottom: 22px; }
+    .wiz-dot { flex: 1; height: 3px; border-radius: 2px; background: var(--border); transition: background 0.3s; }
+    .wiz-dot.done { background: var(--success); } .wiz-dot.active { background: var(--accent); }
+    .wiz-head { margin-bottom: 22px; } .wiz-ttl { font-size: 23px; font-weight: 800; margin-bottom: 3px; } .wiz-sub { font-size: 13px; color: var(--text-muted); }
+    .res-list { display: flex; flex-direction: column; gap: 8px; }
+    .res-item { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 2px solid var(--border); border-radius: var(--r); padding: 12px 16px; cursor: pointer; transition: all 0.18s; user-select: none; min-height: 60px; }
+    .res-item:hover { border-color: var(--border-light); }
+    .res-item.r-firstout { border-color: var(--danger); background: var(--danger-bg); }
+    .res-item.r-finalist { border-color: var(--info); background: var(--info-bg); }
+    .res-item.r-winner { border-color: var(--accent); background: var(--accent-glow); }
+    .res-item.r-disabled { opacity: 0.4; cursor: not-allowed; }
+    .res-name { flex: 1; font-size: 15px; font-weight: 700; }
+    .pot-preview { background: var(--card); border: 1px solid var(--accent-darker); border-radius: var(--r-lg); padding: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 0 20px var(--accent-glow); }
+    .pot-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .pot-val { font-size: 36px; font-weight: 900; color: var(--accent); line-height: 1; }
+    .pot-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── STATS ── */
+    .hi-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 18px; }
+    @media (min-width: 560px) { .hi-grid { grid-template-columns: repeat(4,1fr); } }
+    .hi-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 12px; }
+    .hi-ico { font-size: 26px; margin-bottom: 6px; } .hi-lbl { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; }
+    .hi-val { font-size: 17px; font-weight: 800; margin-top: 2px; } .hi-sub { font-size: 11px; color: var(--text-muted); }
+    .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 460px; }
+    .tbl th { background: var(--surface); padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.9px; color: var(--text-muted); white-space: nowrap; }
+    .tbl td { padding: 10px 12px; border-top: 1px solid var(--border); vertical-align: middle; }
+    .tbl tr:hover td { background: var(--card-hover); }
+    .winbar { width: 70px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px; }
+    .winbar-fill { height: 100%; border-radius: 2px; background: var(--success); transition: width 0.6s ease; }
+
+    /* ── PLAYERS LIST ── */
+    .pl-list { display: flex; flex-direction: column; gap: 8px; }
+    .pl-item { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; transition: all 0.18s; }
+    .pl-item:hover { border-color: var(--border-light); }
+    .pl-info { flex: 1; min-width: 0; } .pl-name { font-size: 15px; font-weight: 700; } .pl-meta { font-size: 11px; color: var(--text-dim); }
+    .pl-bal { font-size: 16px; font-weight: 800; white-space: nowrap; }
+
+    /* ── SEASONS LIST ── */
+    .sn-list { display: flex; flex-direction: column; gap: 10px; }
+    .sn-item { display: flex; align-items: flex-start; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 12px; transition: all 0.18s; }
+    .sn-item:hover { border-color: var(--border-light); }
+    .sn-item.sn-active-item { border-color: var(--accent-darker); box-shadow: 0 0 18px var(--accent-glow); }
+    .sn-ico { font-size: 30px; flex-shrink: 0; padding-top: 2px; }
+    .sn-meta { flex: 1; min-width: 0; }
+    .sn-nm { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+    .sn-rng { font-size: 11px; color: var(--text-muted); }
+    .sn-cnt { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .sn-acts { display: flex; gap: 6px; flex-shrink: 0; align-items: flex-start; }
+
+    /* ── IMPORT TABLE ── */
+    .imp-options { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; margin-bottom: 14px; }
+    .imp-options-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 10px; }
+    .imp-toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
+    .imp-toggle-row input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+    .imp-toggle-lbl { font-size: 14px; font-weight: 500; }
+    .imp-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 12px; }
+    .imp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .imp-table th { background: var(--surface); padding: 9px 10px; text-align: center; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); white-space: nowrap; border-bottom: 1px solid var(--border); }
+    .imp-table th:first-child { text-align: left; padding-left: 14px; }
+    .imp-table td { padding: 7px 8px; border-top: 1px solid var(--border); text-align: center; vertical-align: middle; }
+    .imp-table td:first-child { text-align: left; padding-left: 14px; font-weight: 700; font-size: 14px; white-space: nowrap; }
+    .imp-table tr:hover td { background: var(--card-hover); }
+    .imp-in { width: 62px; background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--r-sm); color: var(--text); font-family: inherit; font-size: 14px; font-weight: 600; padding: 7px 6px; text-align: center; outline: none; transition: border-color 0.18s, box-shadow 0.18s; }
+    .imp-in:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+    .imp-in::-webkit-inner-spin-button { opacity: 0.5; }
+    .imp-info { font-size: 11px; color: var(--text-dim); text-align: center; padding: 4px 0; }
+    .imp-has-data-badge { display: inline-flex; align-items: center; gap: 4px; background: var(--info-bg); border: 1px solid rgba(96,165,250,0.3); color: var(--info); border-radius: 20px; font-size: 10px; font-weight: 700; padding: 2px 8px; }
+
+    /* ── SESSION DETAIL ── */
+    .det-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .det-cell { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 12px; }
+    .det-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); margin-bottom: 4px; }
+    .det-val { font-size: 16px; font-weight: 700; }
+    .abr-list { display: flex; flex-direction: column; gap: 6px; }
+    .abr-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); }
+    .abr-player { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; }
+
+    /* ── UTILS ── */
+    .row { display: flex; align-items: center; }
+    .gap-8 { gap: 8px; } .gap-10 { gap: 10px; } .gap-12 { gap: 12px; }
+    .mb-8 { margin-bottom: 8px; } .mb-12 { margin-bottom: 12px; } .mb-16 { margin-bottom: 16px; } .mb-20 { margin-bottom: 20px; }
+    .mt-12 { margin-top: 12px; } .mt-16 { margin-top: 16px; }
+    .text-right { text-align: right; } .flex-1 { flex: 1; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .page-title { font-size: 23px; font-weight: 800; margin-bottom: 3px; }
+    .page-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header id="app-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <span class="brand-icon">🃏</span>
+        <span class="brand-name">Schnauz</span>
+        <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
+      </div>
+      <span class="header-date" id="hdr-date"></span>
+    </div>
+  </header>
+
+  <div id="toasts"></div>
+
+  <main id="main-content">
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <div class="content-wrap">
+        <div class="sn-bar" id="sn-bar-dash"></div>
+        <div class="hero">
+          <div class="hero-greet">Willkommen zurück!</div>
+          <div class="hero-title" id="dash-title">Heute noch keine Runde</div>
+        </div>
+        <div class="quick-grid" id="dash-qstats"></div>
+        <div class="sec-head mb-8">
+          <span class="sec-title">💰 Kassenstand</span>
+          <span class="badge b-muted" id="dash-totlabel"></span>
+        </div>
+        <div class="lb-list mb-20" id="dash-lb"></div>
+        <div class="sec-head mb-8">
+          <span class="sec-title">🕒 Letzte Runden</span>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('history')">Alle →</button>
+        </div>
+        <div class="sess-list" id="dash-recent"></div>
+      </div>
+    </div>
+
+    <!-- NEW SESSION -->
+    <div class="view" id="view-new-session">
+      <div class="content-wrap" id="wiz-wrap"></div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="view" id="view-history">
+      <div class="content-wrap">
+        <h1 class="page-title">Spielverlauf</h1>
+        <p class="page-sub">Alle eingetragenen Runden</p>
+        <div class="sn-bar" id="sn-bar-hist"></div>
+        <div class="sess-list" id="hist-list"></div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="view" id="view-stats">
+      <div class="content-wrap">
+        <h1 class="page-title">Statistiken</h1>
+        <p class="page-sub">Wer ist der wahre Champion?</p>
+        <div class="sn-bar" id="sn-bar-stats"></div>
+        <div id="stats-import-note" style="display:none;margin-bottom:12px"></div>
+        <div class="hi-grid" id="stats-highlights"></div>
+        <div class="sec-head mb-8"><span class="sec-title">📊 Spieler-Übersicht</span></div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Quote</th><th>1. Raus</th><th>Finalist</th><th>Bilanz</th></tr></thead>
+            <tbody id="stats-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MANAGEMENT -->
+    <div class="view" id="view-players">
+      <div class="content-wrap">
+        <div class="row gap-12 mb-8" style="justify-content:space-between">
+          <h1 class="page-title" style="margin-bottom:0">Verwaltung</h1>
+          <button class="btn btn-primary btn-sm" id="pl-act-btn" onclick="plViewAction()">+ Spieler</button>
+        </div>
+        <p class="page-sub" style="margin-bottom:12px">Spieler &amp; Saisons verwalten</p>
+        <div class="sub-tabs mb-16">
+          <button class="sub-tab active" id="stab-pl" onclick="showSubTab('players')">👥 Spieler</button>
+          <button class="sub-tab"        id="stab-sn" onclick="showSubTab('seasons')">🏆 Saisons</button>
+        </div>
+        <div id="sub-pl-cont"><div class="pl-list" id="pl-list"></div></div>
+        <div id="sub-sn-cont" style="display:none">
+          <div class="sn-list" id="sn-list"></div>
+          <button class="btn btn-primary btn-full mt-16" onclick="openAddSeason()">🏆 Neue Saison erstellen</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <nav id="bottom-nav">
+    <button class="nav-item active" data-view="dashboard"   onclick="navigate('dashboard')"><span class="nav-icon">🏠</span><span class="nav-label">Start</span></button>
+    <button class="nav-item" data-view="new-session" onclick="navigate('new-session')"><span class="nav-icon">➕</span><span class="nav-label">Runde</span></button>
+    <button class="nav-item" data-view="stats"       onclick="navigate('stats')"><span class="nav-icon">📊</span><span class="nav-label">Stats</span></button>
+    <button class="nav-item" data-view="history"     onclick="navigate('history')"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></button>
+    <button class="nav-item" data-view="players"     onclick="navigate('players')"><span class="nav-icon">⚙️</span><span class="nav-label">Verwalt.</span></button>
+  </nav>
+</div>
+
+<!-- MODAL: ADD PLAYER -->
+<div class="modal-wrap" id="modal-add-player">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Spieler hinzufügen</div>
+    <div class="modal-sub">Neuen Stammspieler anlegen</div>
+    <div class="form-group">
+      <label class="form-label" for="inp-pname">Name</label>
+      <input class="form-input" type="text" id="inp-pname" placeholder="z.B. Max Müller" maxlength="30" autocomplete="off">
+    </div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-add-player')">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="submitPlayer()">Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ADD SEASON -->
+<div class="modal-wrap" id="modal-add-season">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Neue Saison erstellen</div>
+    <div class="modal-sub" id="add-sn-sub">Die aktuelle Saison wird damit abgeschlossen.</div>
+    <div class="form-group">
+      <label class="form-label" for="inp-sn-name">Saison-Name</label>
+      <input class="form-input" type="text" id="inp-sn-name" placeholder="z.B. Saison 4 / Q3 2025" maxlength="40">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="inp-sn-start">Startdatum</label>
+      <input class="form-input" type="date" id="inp-sn-start">
+    </div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-add-season')">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="submitAddSeason()">Erstellen</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: EDIT SEASON -->
+<div class="modal-wrap" id="modal-edit-season">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Saison bearbeiten</div>
+    <div class="modal-sub" id="edit-sn-sub"></div>
+    <input type="hidden" id="edit-sn-id">
+    <div class="form-group">
+      <label class="form-label" for="edit-sn-name">Name</label>
+      <input class="form-input" type="text" id="edit-sn-name" maxlength="40">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="edit-sn-start">Startdatum</label>
+      <input class="form-input" type="date" id="edit-sn-start">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="edit-sn-end">Enddatum <span style="color:var(--text-dim);font-weight:400;text-transform:none">(optional)</span></label>
+      <input class="form-input" type="date" id="edit-sn-end">
+    </div>
+    <div id="edit-sn-activate-row" class="mb-16"></div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-edit-season')">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="submitEditSeason()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: IMPORT STATS -->
+<div class="modal-wrap" id="modal-import">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📥 Stats nachtragen</div>
+    <div class="modal-sub" id="imp-sub">Übertrage die Daten aus deiner Papiertabelle.</div>
+    <input type="hidden" id="imp-season-id">
+
+    <div class="imp-options">
+      <div class="imp-options-title">Einstellungen für den Import</div>
+      <label class="imp-toggle-row mb-8" for="imp-has-finals">
+        <input type="checkbox" id="imp-has-finals" checked onchange="refreshImportTable()">
+        <span class="imp-toggle-lbl">Finalisten wurden erfasst</span>
+      </label>
+      <div class="row gap-10">
+        <label class="imp-toggle-lbl">Standard-Einsatz (Cent):</label>
+        <input class="imp-in" style="width: 70px; text-align: left; padding: 7px 10px;" type="number" id="imp-stake" value="20" min="1" max="999">
+      </div>
+    </div>
+
+    <div class="imp-table-wrap">
+      <table class="imp-table" id="imp-table"></table>
+    </div>
+    <p class="imp-info">Leere Felder werden als 0 gezählt. Bereits importierte Werte werden überschrieben.</p>
+
+    <div class="row gap-10 mt-16">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-import')">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="submitImport()">💾 Importieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: SESSION DETAIL -->
+<div class="modal-wrap" id="modal-sess-detail">
+  <div class="modal" id="modal-sess-detail-body"></div>
+</div>
+
+<!-- MODAL: CONFIRM -->
+<div class="modal-wrap" id="modal-confirm">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="conf-title">Löschen?</div>
+    <div class="modal-sub"   id="conf-msg">Bist du sicher?</div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-confirm')">Abbrechen</button>
+      <button class="btn btn-danger    flex-1" id="conf-btn">Löschen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════
+   STATE & SUPABASE
+════════════════════════════════════ */
+const STORE    = 'schnauz_v2';
+let db = { players: [], sessions: [], seasons: [] };
+let filterSeasonId = '__all__';
+let playerSubTab   = 'players';
+let currentView    = 'dashboard';
+let wiz = { step:1, date:'', stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:null };
+
+const SUPA_URL = 'https://hbtqposetokatdswcxdy.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhidHFwb3NldG9rYXRkc3djeGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3OTg2ODYsImV4cCI6MjEwMDM3NDY4Nn0.DFb7SpmrmTL8GmbdkrCCNw5pyWJRQ6ENPmAB5-5O1lE';
+const supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+let isSaving = false;
+
+/* ════════════════════════════════════
+   PERSISTENCE & SYNC
+════════════════════════════════════ */
+async function load() {
+  const statusEl = document.getElementById('sync-status');
+  statusEl.textContent = '☁️ Lädt...';
+  
+  // 1. Local fallback
+  let localRaw = null;
+  try { localRaw = localStorage.getItem(STORE); } catch(e) {}
+  let localDb = { players:[], sessions:[], seasons:[] };
+  if (localRaw) { try { localDb = JSON.parse(localRaw); } catch(e) {} }
+
+  // 2. Fetch from Supabase
+  const { data, error } = await supabase.from('app_state').select('db').eq('id', 1).single();
+  
+  if (error) {
+    console.error("Supabase Error:", error);
+    statusEl.textContent = '☁️ ❌ Fehler';
+    db = localDb; // Fallback
+  } else {
+    const cloudDb = data.db || {};
+    // 3. Migrate local to cloud if cloud is empty
+    if (Object.keys(cloudDb).length === 0 && (localDb.players.length > 0 || localDb.seasons.length > 0)) {
+      db = localDb;
+      await forceSaveToCloud();
+      statusEl.textContent = '☁️ ⬆️ Migriert';
+    } else {
+      db.players  = cloudDb.players  || [];
+      db.sessions = cloudDb.sessions || [];
+      db.seasons  = cloudDb.seasons  || [];
+      statusEl.textContent = '☁️ ✅ Live';
+    }
+  }
+
+  /* Bootstrap checks */
+  if (db.seasons.length === 0) {
+    const sid = uid();
+    const earliest = db.sessions.length ? db.sessions.reduce((m,s) => s.date < m ? s.date : m, db.sessions[0].date) : todayStr();
+    db.seasons.push({ id:sid, name:'Saison 1', startDate:earliest, endDate:null, active:true });
+    db.sessions.forEach(s => { if (!s.seasonId) s.seasonId = sid; });
+    save();
+  }
+  if (!db.seasons.some(s => s.active) && db.seasons.length > 0) {
+    db.seasons[db.seasons.length - 1].active = true;
+    save();
+  }
+
+  try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
+
+  // 4. Realtime updates
+  supabase.channel('public:app_state')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
+      if (isSaving) return;
+      const newDb = payload.new.db;
+      db.players  = newDb.players  || [];
+      db.sessions = newDb.sessions || [];
+      db.seasons  = newDb.seasons  || [];
+      try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
+      
+      if (filterSeasonId !== '__all__' && !db.seasons.find(s => s.id === filterSeasonId)) {
+        filterSeasonId = activeSeasonId() || '__all__';
+      }
+      
+      if (currentView !== 'new-session') {
+        renderView(currentView);
+      }
+    })
+    .subscribe();
+}
+
+async function forceSaveToCloud() {
+  await supabase.from('app_state').update({ db }).eq('id', 1);
+  try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
+}
+
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
+  
+  isSaving = true;
+  document.getElementById('sync-status').textContent = '☁️ ⬆️';
+  supabase.from('app_state').update({ db }).eq('id', 1).then(({error}) => {
+    isSaving = false;
+    if (error) {
+      document.getElementById('sync-status').textContent = '☁️ ❌';
+      console.error(error);
+    } else {
+      document.getElementById('sync-status').textContent = '☁️ ✅ Live';
+    }
+  });
+}
+
+/* ════════════════════════════════════
+   HELPERS
+════════════════════════════════════ */
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+function player(id) { return db.players.find(p => p.id === id); }
+function season(id) { return db.seasons.find(s => s.id === id); }
+function activeSeason() { return db.seasons.find(s => s.active) || db.seasons[db.seasons.length-1]; }
+function activeSeasonId() { return activeSeason()?.id || null; }
+
+function initials(name) {
+  if (!name) return '?';
+  return name.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
+}
+function avatarClass(id) {
+  const idx = db.players.findIndex(p => p.id === id);
+  return `ac-${(idx<0?0:idx)%10}`;
+}
+function fmtMoney(cents, showPlus=true) {
+  const eur = cents/100;
+  return `${eur>0&&showPlus?'+':''}${eur.toFixed(2).replace('.',',')} €`;
+}
+function fmtDate(ds) {
+  return new Date(ds+'T12:00:00').toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+function fmtDateBox(ds) {
+  const d = new Date(ds+'T12:00:00');
+  return { day: d.getDate(), mon: d.toLocaleDateString('de-DE',{month:'short'}) };
+}
+function fmtDateMed(ds) {
+  if (!ds) return '–';
+  return new Date(ds+'T12:00:00').toLocaleDateString('de-DE',{day:'numeric',month:'short',year:'numeric'});
+}
+
+/* ════════════════════════════════════
+   IMPORT BASE (aggregate stats from paper)
+════════════════════════════════════ */
+
+/** Get the import base for a player given the current season filter */
+function getSeasonImportBaseForPlayer(s, pid) {
+  const base = s?.importBase?.[pid];
+  if (!base) return {};
+  let bal = base.bal;
+  if (typeof bal === 'undefined') {
+    let tGames = 0, tWins = 0;
+    Object.values(s.importBase).forEach(r => { tGames += (r.games||0); tWins += (r.wins||0); });
+    const stake = s.importStake || 20;
+    const potPerWin = tWins > 0 ? (tGames * stake) / tWins : 0;
+    bal = Math.round(-(base.games||0) * stake + (base.wins||0) * potPerWin);
+  }
+  return { ...base, bal };
+}
+
+function getImportBase(pid) {
+  if (filterSeasonId === '__all__') {
+    return sumImportBases(pid, db.seasons);
+  }
+  const s = season(filterSeasonId);
+  return getSeasonImportBaseForPlayer(s, pid);
+}
+
+/** Get all-time import base across ALL seasons (for players tab) */
+function getAllTimeImportBase(pid) {
+  return sumImportBases(pid, db.seasons);
+}
+
+function sumImportBases(pid, seasons) {
+  return seasons.reduce((t, s) => {
+    const b = getSeasonImportBaseForPlayer(s, pid);
+    return {
+      games:    (t.games    || 0) + (b.games    || 0),
+      wins:     (t.wins     || 0) + (b.wins     || 0),
+      firsts:   (t.firsts   || 0) + (b.firsts   || 0),
+      finalist: (t.finalist || 0) + (b.finalist || 0),
+      bal:      (t.bal      || 0) + (b.bal      || 0),
+    };
+  }, {});
+}
+
+/** Check if any season in current filter has imported stats */
+function hasImportedData() {
+  if (filterSeasonId === '__all__') return db.seasons.some(s => s.importBase && Object.keys(s.importBase).length > 0);
+  const s = season(filterSeasonId);
+  return s?.importBase && Object.keys(s.importBase).length > 0;
+}
+
+/* ════════════════════════════════════
+   STATS COMPUTATION
+════════════════════════════════════ */
+
+/** Compute stats for a player given sessions + an optional import base override */
+function computeStats(pid, sessions, importBase) {
+  const base = importBase || {};
+  const ps = sessions.filter(s => s.participants.includes(pid));
+  const sessionWins    = ps.filter(s => s.winner    === pid).length;
+  const sessionFirsts  = ps.filter(s => s.firstOut  === pid).length;
+  const sessionFinal   = ps.filter(s => s.finalists.includes(pid)).length;
+  let sessionBal = 0;
+  for (const s of ps) {
+    const n = s.participants.length;
+    sessionBal += s.winner === pid ? s.stake*(n-1) : -s.stake;
+  }
+  const games    = (base.games    || 0) + ps.length;
+  const wins     = (base.wins     || 0) + sessionWins;
+  const firsts   = (base.firsts   || 0) + sessionFirsts;
+  const finalist = (base.finalist || 0) + sessionFinal;
+  const bal      = (base.bal      || 0) + sessionBal;
+  return { games, wins, firsts, finalist, bal, winRate: games > 0 ? Math.round(wins/games*100) : 0 };
+}
+
+/** Stats using the current season filter */
+function stats(pid, sessions) {
+  return computeStats(pid, sessions, getImportBase(pid));
+}
+
+/** All-time stats across all sessions and all import bases */
+function allTimeStats(pid) {
+  return computeStats(pid, db.sessions, getAllTimeImportBase(pid));
+}
+
+function totalPot(sessions) {
+  return (sessions || filteredSessions()).reduce((s,r) => s+r.stake*r.participants.length, 0);
+}
+
+/* ════════════════════════════════════
+   SESSION FILTERING
+════════════════════════════════════ */
+function filteredSessions() {
+  if (filterSeasonId === '__all__') return db.sessions;
+  return db.sessions.filter(s => s.seasonId === filterSeasonId);
+}
+
+function getAggregateTotals() {
+  let games = filteredSessions().length;
+  let pot = totalPot(filteredSessions());
+  const seasonsToProcess = filterSeasonId === '__all__' ? db.seasons : [season(filterSeasonId)].filter(Boolean);
+  seasonsToProcess.forEach(s => {
+    if (s.importBase) {
+      let wins = 0; let participations = 0;
+      Object.values(s.importBase).forEach(b => { wins += (b.wins || 0); participations += (b.games || 0); });
+      games += wins;
+      pot += participations * (s.importStake || 20);
+    }
+  });
+  return { games, pot };
+}
+
+/* ════════════════════════════════════
+   SEASON CHIP BAR
+════════════════════════════════════ */
+function renderSeasonBar(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const sorted = [...db.seasons].reverse();
+  el.innerHTML = [
+    `<div class="sn-chip ${filterSeasonId==='__all__'?'on':''}" onclick="setSF('__all__')">🌐 Alle</div>`,
+    ...sorted.map(s => `
+      <div class="sn-chip ${filterSeasonId===s.id?'on':''}" onclick="setSF('${s.id}')">
+        ${s.name}${s.active?'<span class="sn-dot"></span>':''}
+      </div>`)
+  ].join('');
+}
+
+function setSF(id) { filterSeasonId = id; renderView(currentView); }
+
+/* ════════════════════════════════════
+   NAVIGATION
+════════════════════════════════════ */
+function navigate(view) {
+  currentView = view;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view===view));
+  const el = document.getElementById(`view-${view}`);
+  el.classList.add('active');
+  const wrap = el.querySelector('.content-wrap');
+  if (wrap) { wrap.style.animation='none'; void wrap.offsetWidth; wrap.style.animation=''; }
+  window.scrollTo(0,0);
+  renderView(view);
+}
+
+function renderView(v) {
+  switch(v) {
+    case 'dashboard':   renderDash();    break;
+    case 'new-session': renderWizard();  break;
+    case 'history':     renderHistory(); break;
+    case 'stats':       renderStats();   break;
+    case 'players':     renderMgmt();    break;
+  }
+}
+
+/* ════════════════════════════════════
+   DASHBOARD
+════════════════════════════════════ */
+function renderDash() {
+  document.getElementById('hdr-date').textContent =
+    new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+  renderSeasonBar('sn-bar-dash');
+
+  const fSess = filteredSessions();
+  const today = todayStr();
+  const todaySess = fSess.find(s => s.date===today);
+  const titleEl = document.getElementById('dash-title');
+  if (todaySess) {
+    const w = player(todaySess.winner);
+    titleEl.innerHTML = `🏆 ${w?w.name:'?'} hat heute gewonnen!`;
+  } else {
+    titleEl.textContent = 'Heute noch keine Runde';
+  }
+
+  const now = new Date();
+  const thisMonth = fSess.filter(s => s.date.startsWith(now.toISOString().slice(0,7))).length;
+  const agg = getAggregateTotals();
+
+  document.getElementById('dash-qstats').innerHTML = `
+    <div class="qstat"><div class="qstat-val">${agg.games}</div><div class="qstat-lbl">Runden</div></div>
+    <div class="qstat"><div class="qstat-val">${db.players.length}</div><div class="qstat-lbl">Spieler</div></div>
+    <div class="qstat"><div class="qstat-val">${thisMonth}</div><div class="qstat-lbl">Diesen Monat</div></div>
+    <div class="qstat" style="color:var(--accent)"><div class="qstat-val">${(agg.pot/100).toFixed(2).replace('.',',')} €</div><div class="qstat-lbl">Pot</div></div>`;
+
+  document.getElementById('dash-totlabel').textContent = `${(agg.pot/100).toFixed(2).replace('.',',')} € Pot (inkl. Import)`;
+
+  const lb = db.players.map(p => ({ p, s: stats(p.id,fSess) }))
+    .filter(x => x.s.games > 0)
+    .sort((a,b) => b.s.wins - a.s.wins || b.s.bal - a.s.bal);
+
+  const lbEl = document.getElementById('dash-lb');
+  if (!lb.length) {
+    lbEl.innerHTML = emptyState('💰','Noch keine Daten','Trage deine erste Runde ein!');
+  } else {
+    const rnk = ['🥇','🥈','🥉'];
+    lbEl.innerHTML = lb.map(({p,s},i) => `
+      <div class="lb-item" onclick="navigate('stats')">
+        <div class="lb-rank">${rnk[i]||`#${i+1}`}</div>
+        <div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div>
+        <div class="lb-name">
+          <div class="lb-pname">${p.name}</div>
+          <div class="lb-psub">${s.wins} Siege · ${s.winRate}% Quote · ${s.games} Sp.</div>
+        </div>
+        <div class="lb-bal ${s.bal>0?'pos':s.bal<0?'neg':'zer'}">${fmtMoney(s.bal)}</div>
+      </div>`).join('');
+  }
+
+  const recent = [...fSess].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  const recEl = document.getElementById('dash-recent');
+  recEl.innerHTML = recent.length
+    ? recent.map(s=>sessItem(s,filterSeasonId==='__all__')).join('')
+    : emptyState('🃏','Keine Runden','Drücke "+ Runde" um loszulegen');
+}
+
+function sessItem(s, showSeason=false) {
+  const w=player(s.winner), fo=player(s.firstOut);
+  const {day,mon} = fmtDateBox(s.date);
+  const pot=s.stake*s.participants.length;
+  const names=s.participants.map(id=>player(id)?.name||'?').join(', ');
+  const sn=season(s.seasonId);
+  return `
+    <div class="sess-item" onclick="openSessDetail('${s.id}')">
+      <div class="sess-datebox"><div class="sess-day">${day}</div><div class="sess-mon">${mon}</div></div>
+      <div class="sess-info">
+        <div class="sess-win">🏆 ${w?w.name:'?'} ${showSeason&&sn?`<span class="badge b-muted" style="font-size:9px">${sn.name}</span>`:''}</div>
+        <div class="sess-names">${names}</div>
+      </div>
+      <div class="text-right">
+        <div class="sess-pot">${(pot/100).toFixed(2).replace('.',',')} €</div>
+        <div style="font-size:10px;color:var(--text-dim)">🚫 ${fo?fo.name:'?'}</div>
+      </div>
+    </div>`;
+}
+
+/* ════════════════════════════════════
+   WIZARD
+════════════════════════════════════ */
+function initWiz(editSess=null) {
+  const defSeason = (filterSeasonId!=='__all__'?filterSeasonId:null) || activeSeasonId();
+  if (editSess) {
+    wiz = { step:1, date:editSess.date, stake:editSess.stake, participants:[...editSess.participants], firstOut:editSess.firstOut, finalists:[...editSess.finalists], winner:editSess.winner, editId:editSess.id, seasonId:editSess.seasonId||defSeason };
+  } else {
+    wiz = { step:1, date:todayStr(), stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:defSeason };
+  }
+}
+
+function renderWizard() {
+  const wrap = document.getElementById('wiz-wrap');
+  if (!db.players.length) { wrap.innerHTML=emptyWithCta('👥','Keine Spieler','Füge zuerst Spieler hinzu','Spieler hinzufügen',"navigate('players')"); return; }
+  if (!db.seasons.length)  { wrap.innerHTML=emptyWithCta('🏆','Keine Saison','Erstelle zuerst eine Saison','Zur Verwaltung',"navigate('players')"); return; }
+
+  const dots=[1,2,3].map(i=>`<div class="wiz-dot ${i<wiz.step?'done':i===wiz.step?'active':''}"></div>`).join('');
+  let body='';
+
+  if (wiz.step===1) {
+    const presets=[20,30], isCustom=!presets.includes(wiz.stake);
+    const snOpts=db.seasons.map(s=>`<option value="${s.id}" ${wiz.seasonId===s.id?'selected':''}>${s.name}${s.active?' (aktuell)':''}</option>`).join('');
+    const selSn=season(wiz.seasonId);
+    const hint = selSn&&!selSn.active
+      ? `<div style="background:var(--info-bg);border:1px solid rgba(96,165,250,0.3);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--info);margin-top:-10px;margin-bottom:18px">📥 Daten werden für <strong>${selSn.name}</strong> nachgetragen.</div>` : '';
+    body=`
+      <div class="wiz-head"><div class="wiz-ttl">Runden-Info</div><div class="wiz-sub">Datum, Saison &amp; Einsatz</div></div>
+      <div class="form-group"><label class="form-label" for="wiz-date">Datum</label><input class="form-input" type="date" id="wiz-date" value="${wiz.date}" onchange="wiz.date=this.value"></div>
+      <div class="form-group"><label class="form-label" for="wiz-season">Saison</label><select class="form-input" id="wiz-season" onchange="wiz.seasonId=this.value;renderWizard()">${snOpts}</select></div>
+      ${hint}
+      <div class="form-group">
+        <label class="form-label">Einsatz pro Spieler</label>
+        <div class="stake-pills mb-8">
+          ${presets.map(v=>`<div class="stake-pill ${wiz.stake===v&&!isCustom?'on':''}" onclick="setStake(${v})">${v} Ct</div>`).join('')}
+          <div class="stake-pill ${isCustom?'on':''}" onclick="toggleCustomStake()">Andere</div>
+        </div>
+        <div id="custom-stake-row" style="${isCustom?'':'display:none'}">
+          <div class="input-group"><span class="input-prefix">Ct</span><input class="form-input" type="number" id="custom-stake-val" min="1" max="9999" placeholder="50" value="${isCustom?wiz.stake:''}" oninput="wiz.stake=parseInt(this.value)||1"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full btn-lg" onclick="wizNext()">Weiter → Spieler auswählen</button>`;
+
+  } else if (wiz.step===2) {
+    const cnt=wiz.participants.length;
+    const chips=db.players.map(p=>`<div class="chip ${wiz.participants.includes(p.id)?'on':''}" onclick="togglePart('${p.id}')">${p.name}</div>`).join('');
+    body=`
+      <div class="wiz-head"><div class="wiz-ttl">Wer hat mitgespielt?</div><div class="wiz-sub">${cnt} ausgewählt${cnt<2?' <span style="color:var(--danger)">(mind. 2)</span>':''}</div></div>
+      <div class="chip-group mb-20">${chips}</div>
+      <div class="row gap-10"><button class="btn btn-secondary" style="flex:1" onclick="wizBack()">← Zurück</button><button class="btn btn-primary" style="flex:2" onclick="wizNext()" ${cnt<2?'disabled style="opacity:.5"':''}>Weiter → Ergebnis</button></div>`;
+
+  } else if (wiz.step===3) {
+    const parts=wiz.participants.map(id=>player(id)).filter(Boolean);
+    const sn=season(wiz.seasonId);
+    const foHtml=`<div class="form-group"><label class="form-label">🚫 Wer ist als Erster rausgeflogen?</label><div class="res-list">${parts.map(p=>`<div class="res-item ${wiz.firstOut===p.id?'r-firstout':''}" onclick="selFirstOut('${p.id}')"><div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div><div class="res-name">${p.name}</div>${wiz.firstOut===p.id?'<span class="badge b-danger">1. Raus</span>':''}</div>`).join('')}</div></div>`;
+    const finCand=parts.filter(p=>p.id!==wiz.firstOut);
+    const finHtml=wiz.firstOut?`<div class="form-group"><label class="form-label">🎯 2 Finalisten (${wiz.finalists.length}/2)</label><div class="res-list">${finCand.map(p=>{const sel=wiz.finalists.includes(p.id),dis=!sel&&wiz.finalists.length>=2;return`<div class="res-item ${sel?'r-finalist':''} ${dis?'r-disabled':''}" onclick="${dis?'':(`toggleFin('${p.id}')`)}">${`<div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div><div class="res-name">${p.name}</div>${sel?'<span class="badge b-info">Finalist</span>':''}`}</div>`;}).join('')}</div></div>`:'';
+    const winHtml=wiz.finalists.length>=2?`<div class="form-group"><label class="form-label">🏆 Wer hat gewonnen?</label><div class="res-list">${wiz.finalists.map(id=>{const p=player(id);if(!p)return'';return`<div class="res-item ${wiz.winner===p.id?'r-winner':''}" onclick="selWinner('${p.id}')"><div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div><div class="res-name">${p.name}</div>${wiz.winner===p.id?'<span class="badge b-gold">🏆 Sieger</span>':''}</div>`;}).join('')}</div></div>`:'';
+    const pot=wiz.stake*wiz.participants.length, canSave=wiz.firstOut&&wiz.finalists.length>=2&&wiz.winner;
+    body=`
+      <div class="wiz-head"><div class="wiz-ttl">${wiz.editId?'Bearbeiten':'Ergebnis eintragen'}</div><div class="wiz-sub">${wiz.participants.length} Spieler · ${wiz.stake} Ct${sn?' · '+sn.name:''}</div></div>
+      <div class="pot-preview"><div class="pot-lbl">💰 Gesamtpott</div><div class="pot-val">${(pot/100).toFixed(2).replace('.',',')} €</div><div class="pot-sub">${wiz.participants.length} × ${wiz.stake} Ct${sn?' · '+sn.name:''}</div></div>
+      ${foHtml}${finHtml}${winHtml}
+      <div class="row gap-10 mt-16"><button class="btn btn-secondary" style="flex:1" onclick="wizBack()">← Zurück</button><button class="btn btn-primary" style="flex:2" onclick="submitSess()" ${!canSave?'disabled style="opacity:.5"':''}>${wiz.editId?'💾 Speichern':'🎉 Runde speichern'}</button></div>`;
+  }
+
+  wrap.innerHTML=`<div class="wiz-progress">${dots}</div>${body}`;
+  const di=document.getElementById('wiz-date'); if(di) di.value=wiz.date;
+}
+
+function wizNext() {
+  if (wiz.step===1) {
+    if (!wiz.date) { toast('Bitte Datum wählen','err'); return; }
+    const cv=document.getElementById('custom-stake-val'); if(cv&&cv.value) wiz.stake=parseInt(cv.value)||wiz.stake;
+    wiz.step=2;
+  } else if (wiz.step===2) {
+    if (wiz.participants.length<2) { toast('Mindestens 2 Spieler','err'); return; }
+    if (wiz.firstOut&&!wiz.participants.includes(wiz.firstOut)) wiz.firstOut=null;
+    wiz.finalists=wiz.finalists.filter(id=>wiz.participants.includes(id));
+    if (wiz.winner&&!wiz.finalists.includes(wiz.winner)) wiz.winner=null;
+    wiz.step=3;
+  }
+  renderWizard();
+}
+function wizBack() { if(wiz.step>1){wiz.step--;renderWizard();} }
+function setStake(v) { wiz.stake=v; document.getElementById('custom-stake-row').style.display='none'; renderWizard(); }
+function toggleCustomStake() { const r=document.getElementById('custom-stake-row'); if(r){const h=r.style.display==='none';r.style.display=h?'':'none';if(h)document.getElementById('custom-stake-val')?.focus();} }
+function togglePart(id) { const i=wiz.participants.indexOf(id); if(i>=0)wiz.participants.splice(i,1);else wiz.participants.push(id); renderWizard(); }
+function selFirstOut(id) { wiz.firstOut=id;wiz.finalists=wiz.finalists.filter(f=>f!==id);if(wiz.winner===id)wiz.winner=null;renderWizard(); }
+function toggleFin(id) { const i=wiz.finalists.indexOf(id);if(i>=0){wiz.finalists.splice(i,1);if(wiz.winner===id)wiz.winner=null;}else if(wiz.finalists.length<2)wiz.finalists.push(id);renderWizard(); }
+function selWinner(id) { wiz.winner=id;renderWizard(); }
+function submitSess() {
+  if (!wiz.firstOut||wiz.finalists.length<2||!wiz.winner){toast('Bitte alle Felder ausfüllen','err');return;}
+  const sess={id:wiz.editId||uid(),date:wiz.date,stake:wiz.stake,participants:[...wiz.participants],firstOut:wiz.firstOut,finalists:[...wiz.finalists],winner:wiz.winner,seasonId:wiz.seasonId||activeSeasonId(),ts:Date.now()};
+  if(wiz.editId){const i=db.sessions.findIndex(s=>s.id===wiz.editId);if(i>=0)db.sessions[i]=sess;toast('✅ Runde aktualisiert!','ok');}
+  else{db.sessions.push(sess);toast('🎉 Runde gespeichert!','ok');}
+  save();initWiz();navigate('dashboard');
+}
+
+/* ════════════════════════════════════
+   HISTORY
+════════════════════════════════════ */
+function renderHistory() {
+  renderSeasonBar('sn-bar-hist');
+  const sorted=[...filteredSessions()].sort((a,b)=>b.date.localeCompare(a.date));
+  const el=document.getElementById('hist-list');
+  el.innerHTML=sorted.length?sorted.map(s=>sessItem(s,filterSeasonId==='__all__')).join('')
+    :emptyState('📋','Keine Runden','Drücke "Runde" in der Navigation');
+}
+
+/* ════════════════════════════════════
+   STATS
+════════════════════════════════════ */
+function renderStats() {
+  renderSeasonBar('sn-bar-stats');
+  const fSess=filteredSessions();
+
+  /* Imported data note */
+  const noteEl=document.getElementById('stats-import-note');
+  if (hasImportedData()) {
+    noteEl.style.display='';
+    noteEl.innerHTML=`<div style="background:var(--info-bg);border:1px solid rgba(96,165,250,0.3);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--info);display:flex;align-items:center;gap:8px"><span>📥</span><span>Diese Ansicht enthält <strong>importierte Statistiken</strong> aus Papierlisten.</span></div>`;
+  } else {
+    noteEl.style.display='none';
+  }
+
+  const withGames=db.players.filter(p=>stats(p.id,fSess).games>0);
+  let topWins=null,richest=null,brokest=null;
+  for (const p of withGames) {
+    const s=stats(p.id,fSess);
+    if (!topWins||s.wins>stats(topWins.id,fSess).wins) topWins=p;
+    if (!richest||s.bal>stats(richest.id,fSess).bal) richest=p;
+    if (!brokest||s.bal<stats(brokest.id,fSess).bal) brokest=p;
+  }
+
+  const agg=getAggregateTotals();
+  document.getElementById('stats-highlights').innerHTML=`
+    <div class="hi-card"><div class="hi-ico">🏆</div><div class="hi-lbl">Meiste Siege</div><div class="hi-val">${topWins?topWins.name:'–'}</div><div class="hi-sub">${topWins?stats(topWins.id,fSess).wins+' Siege':''}</div></div>
+    <div class="hi-card"><div class="hi-ico">💰</div><div class="hi-lbl">Größter Gewinner</div><div class="hi-val">${richest?richest.name:'–'}</div><div class="hi-sub" style="color:var(--success)">${richest?fmtMoney(stats(richest.id,fSess).bal):''}</div></div>
+    <div class="hi-card" style="border-color:rgba(248,113,113,0.2)"><div class="hi-ico">💸</div><div class="hi-lbl">Größter Verlierer</div><div class="hi-val" style="color:var(--danger)">${brokest?brokest.name:'–'}</div><div class="hi-sub" style="color:var(--danger)">${brokest?fmtMoney(stats(brokest.id,fSess).bal):''}</div></div>
+    <div class="hi-card"><div class="hi-ico">🃏</div><div class="hi-lbl">Runden</div><div class="hi-val">${agg.games}</div><div class="hi-sub">${(agg.pot/100).toFixed(2).replace('.',',')} € Pot</div></div>`;
+
+  const rows=withGames.map(p=>({p,s:stats(p.id,fSess)})).sort((a,b)=>b.s.wins-a.s.wins);
+  const tbody=document.getElementById('stats-tbody');
+  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; return; }
+  tbody.innerHTML=rows.map(({p,s})=>`
+    <tr>
+      <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong></div></td>
+      <td>${s.games}</td><td><strong>${s.wins}</strong></td>
+      <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
+      <td style="color:var(--danger)">${s.firsts}</td>
+      <td>${s.finalist}</td>
+      <td class="${s.bal>0?'pos':s.bal<0?'neg':'zer'}" style="font-weight:800">${fmtMoney(s.bal)}</td>
+    </tr>`).join('');
+}
+
+/* ════════════════════════════════════
+   MANAGEMENT VIEW
+════════════════════════════════════ */
+function renderMgmt() { showSubTab(playerSubTab); }
+
+function showSubTab(tab) {
+  playerSubTab=tab;
+  document.getElementById('stab-pl').classList.toggle('active',tab==='players');
+  document.getElementById('stab-sn').classList.toggle('active',tab==='seasons');
+  document.getElementById('sub-pl-cont').style.display=tab==='players'?'':'none';
+  document.getElementById('sub-sn-cont').style.display=tab==='seasons'?'':'none';
+  const btn=document.getElementById('pl-act-btn');
+  if (tab==='players'){btn.textContent='+ Spieler';btn.onclick=openAddPlayer;}
+  else {btn.textContent='+ Saison';btn.onclick=openAddSeason;}
+  if (tab==='players') renderPlayersTab(); else renderSeasonsTab();
+}
+
+function plViewAction() { if(playerSubTab==='players')openAddPlayer();else openAddSeason(); }
+
+/* ── Players Tab ── */
+function renderPlayersTab() {
+  const el=document.getElementById('pl-list');
+  if (!db.players.length){el.innerHTML=emptyState('👥','Noch keine Spieler','Füge deinen ersten Spieler hinzu!');return;}
+  el.innerHTML=db.players.map(p=>{
+    const s=allTimeStats(p.id);
+    const bc=s.bal>0?'pos':s.bal<0?'neg':'zer';
+    return `
+      <div class="pl-item">
+        <div class="avatar av-40 ${avatarClass(p.id)}">${initials(p.name)}</div>
+        <div class="pl-info"><div class="pl-name">${p.name}</div><div class="pl-meta">${s.games} Sp. · ${s.wins} Siege · ${s.winRate}% (gesamt)</div></div>
+        <div class="pl-bal ${bc}">${fmtMoney(s.bal)}</div>
+        <button class="btn btn-secondary btn-icon" onclick="confirmDelPlayer('${p.id}')" title="Löschen">🗑️</button>
+      </div>`;
+  }).join('');
+}
+
+/* ── Seasons Tab ── */
+function renderSeasonsTab() {
+  const el=document.getElementById('sn-list'); if(!el)return;
+  if (!db.seasons.length){el.innerHTML=emptyState('🏆','Keine Saisons','Erstelle deine erste Saison!');return;}
+  const sorted=[...db.seasons].reverse();
+  el.innerHTML=sorted.map(s=>{
+    const sessCnt=db.sessions.filter(sess=>sess.seasonId===s.id).length;
+    const hasImport=s.importBase&&Object.keys(s.importBase).length>0;
+    const endLabel=s.endDate?fmtDateMed(s.endDate):s.active?'<span style="color:var(--success)">läuft noch</span>':'–';
+    return `
+      <div class="sn-item ${s.active?'sn-active-item':''}">
+        <div class="sn-ico">${s.active?'🏆':'📦'}</div>
+        <div class="sn-meta">
+          <div class="sn-nm">
+            ${s.name}
+            ${s.active?'<span class="badge b-success">Aktiv</span>':'<span class="badge b-muted">Abgeschlossen</span>'}
+            ${hasImport?'<span class="imp-has-data-badge">📥 importiert</span>':''}
+          </div>
+          <div class="sn-rng">${fmtDateMed(s.startDate)} – ${endLabel}</div>
+          <div class="sn-cnt">${sessCnt} Einzelrunden${hasImport?' · Aggregat-Stats vorhanden':''}</div>
+        </div>
+        <div class="sn-acts">
+          <button class="btn btn-info btn-sm" onclick="openImportSeason('${s.id}')" title="Stats nachtragen">📥</button>
+          <button class="btn btn-ghost btn-icon" onclick="editSeason('${s.id}')" title="Bearbeiten">✏️</button>
+          ${!s.active?`<button class="btn btn-danger btn-icon" onclick="confirmDelSeason('${s.id}')" title="Löschen">🗑️</button>`:''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════
+   IMPORT AGGREGATE STATS
+════════════════════════════════════ */
+function openImportSeason(id) {
+  const s=season(id); if(!s)return;
+  document.getElementById('imp-season-id').value=id;
+  document.getElementById('imp-sub').textContent=`${s.name} – Übertrage Werte aus deiner Papiertabelle.`;
+  const hasFinals=s.importHasFinals!==false; // default true
+  document.getElementById('imp-has-finals').checked=hasFinals;
+  document.getElementById('imp-stake').value = s.importStake || 20;
+  renderImportTable(id, hasFinals);
+  openModal('modal-import');
+}
+
+function refreshImportTable() {
+  const id=document.getElementById('imp-season-id').value;
+  const hasFinals=document.getElementById('imp-has-finals').checked;
+  renderImportTable(id, hasFinals);
+}
+
+function renderImportTable(seasonId, hasFinals) {
+  const s=season(seasonId); if(!s)return;
+  const table=document.getElementById('imp-table');
+  if (!db.players.length) {
+    table.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-dim)">Keine Spieler vorhanden</td></tr>`;
+    return;
+  }
+  table.innerHTML=`
+    <thead>
+      <tr>
+        <th>Spieler</th>
+        <th title="Anzahl gespielter Runden">Spiele</th>
+        <th title="Gewonnene Runden">Siege</th>
+        <th title="Als Erster ausgeschieden">1. Raus</th>
+        ${hasFinals?'<th title="Im Finale gewesen">Finalist</th>':''}
+      </tr>
+    </thead>
+    <tbody>
+      ${db.players.map(p=>{
+        const base=s.importBase?.[p.id]||{};
+        return `<tr>
+          <td>${p.name}</td>
+          <td><input class="imp-in" type="number" min="0" max="9999" data-pid="${p.id}" data-field="games" value="${base.games||''}" placeholder="0"></td>
+          <td><input class="imp-in" type="number" min="0" max="9999" data-pid="${p.id}" data-field="wins" value="${base.wins||''}" placeholder="0"></td>
+          <td><input class="imp-in" type="number" min="0" max="9999" data-pid="${p.id}" data-field="firsts" value="${base.firsts||''}" placeholder="0"></td>
+          ${hasFinals?`<td><input class="imp-in" type="number" min="0" max="9999" data-pid="${p.id}" data-field="finalist" value="${base.finalist||''}" placeholder="0"></td>`:''}
+        </tr>`;
+      }).join('')}
+    </tbody>`;
+}
+
+function submitImport() {
+  const id=document.getElementById('imp-season-id').value;
+  const s=season(id); if(!s)return;
+  const hasFinals=document.getElementById('imp-has-finals').checked;
+  const stake = parseInt(document.getElementById('imp-stake').value) || 20;
+  const inputs=document.querySelectorAll('#imp-table .imp-in');
+  const result={};
+  let totalParticipations = 0;
+  let totalWins = 0;
+
+  inputs.forEach(inp=>{
+    const pid=inp.dataset.pid, field=inp.dataset.field;
+    if(!result[pid]) result[pid]={games:0,wins:0,firsts:0,finalist:0};
+    result[pid][field]=parseInt(inp.value)||0;
+  });
+
+  Object.keys(result).forEach(pid => {
+    totalParticipations += result[pid].games;
+    totalWins += result[pid].wins;
+  });
+
+  const potPerWin = totalWins > 0 ? (totalParticipations * stake) / totalWins : 0;
+
+  // Remove entries that are all zeros (don't pollute if player not in this season)
+  Object.keys(result).forEach(pid=>{
+    const r=result[pid];
+    r.bal = Math.round(-r.games * stake + r.wins * potPerWin);
+    if(r.games===0&&r.wins===0&&r.firsts===0&&r.finalist===0) delete result[pid];
+  });
+  
+  s.importBase=result;
+  s.importHasFinals=hasFinals;
+  s.importStake=stake;
+  save();
+  closeModal('modal-import');
+  renderSeasonsTab();
+  toast(`📥 ${s.name}: Stats importiert!`,'ok');
+}
+
+/* ════════════════════════════════════
+   SEASONS CRUD
+════════════════════════════════════ */
+function openAddSeason() {
+  const nextNum=db.seasons.length+1;
+  document.getElementById('inp-sn-name').value=`Saison ${nextNum}`;
+  document.getElementById('inp-sn-start').value=todayStr();
+  const cur=activeSeason();
+  document.getElementById('add-sn-sub').textContent=cur?`"${cur.name}" wird damit abgeschlossen.`:'Deine erste Saison.';
+  openModal('modal-add-season');
+  setTimeout(()=>document.getElementById('inp-sn-name').select(),200);
+}
+function submitAddSeason() {
+  const name=document.getElementById('inp-sn-name').value.trim();
+  const startDate=document.getElementById('inp-sn-start').value;
+  if(!name){toast('Bitte Namen eingeben','err');return;}
+  if(!startDate){toast('Bitte Startdatum wählen','err');return;}
+  db.seasons.forEach(s=>{if(s.active){s.active=false;if(!s.endDate){const e=new Date(startDate+'T12:00:00');e.setDate(e.getDate()-1);s.endDate=e.toISOString().split('T')[0];}}});
+  const newSeason={id:uid(),name,startDate,endDate:null,active:true};
+  db.seasons.push(newSeason);
+  filterSeasonId=newSeason.id;
+  save();closeModal('modal-add-season');renderSeasonsTab();
+  toast(`🏆 ${name} gestartet!`,'ok');
+}
+function editSeason(id) {
+  const s=season(id);if(!s)return;
+  document.getElementById('edit-sn-id').value=id;
+  document.getElementById('edit-sn-name').value=s.name;
+  document.getElementById('edit-sn-start').value=s.startDate;
+  document.getElementById('edit-sn-end').value=s.endDate||'';
+  document.getElementById('edit-sn-sub').textContent=s.active?'Aktive Saison':'Abgeschlossene Saison';
+  const actRow=document.getElementById('edit-sn-activate-row');
+  actRow.innerHTML=!s.active?`<button class="btn btn-ghost btn-full" onclick="activateSeason('${id}');closeModal('modal-edit-season')">✅ Als aktive Saison markieren</button>`:'';
+  openModal('modal-edit-season');
+}
+function submitEditSeason() {
+  const id=document.getElementById('edit-sn-id').value;
+  const name=document.getElementById('edit-sn-name').value.trim();
+  const startDate=document.getElementById('edit-sn-start').value;
+  const endDate=document.getElementById('edit-sn-end').value||null;
+  if(!name){toast('Bitte Namen eingeben','err');return;}
+  const s=season(id);if(!s)return;
+  s.name=name;s.startDate=startDate;s.endDate=endDate;
+  save();closeModal('modal-edit-season');renderSeasonsTab();
+  ['sn-bar-dash','sn-bar-hist','sn-bar-stats'].forEach(id=>renderSeasonBar(id));
+  toast('✅ Saison aktualisiert','ok');
+}
+function activateSeason(id) { db.seasons.forEach(s=>s.active=(s.id===id));save();renderSeasonsTab();toast('✅ Saison aktiviert','ok'); }
+function confirmDelSeason(id) {
+  const s=season(id);if(!s)return;
+  if(s.active){toast('Aktive Saison kann nicht gelöscht werden','err');return;}
+  const sessCnt=db.sessions.filter(sess=>sess.seasonId===id).length;
+  document.getElementById('conf-title').textContent=`${s.name} löschen?`;
+  document.getElementById('conf-msg').textContent=sessCnt>0?`Diese Saison hat ${sessCnt} Runden. Diese bleiben erhalten, sind aber keiner Saison mehr zugeordnet.`:`"${s.name}" endgültig löschen?`;
+  document.getElementById('conf-btn').onclick=()=>{
+    db.sessions.forEach(sess=>{if(sess.seasonId===id)delete sess.seasonId;});
+    db.seasons=db.seasons.filter(x=>x.id!==id);
+    if(filterSeasonId===id)filterSeasonId='__all__';
+    save();closeModal('modal-confirm');renderSeasonsTab();
+    toast(`🗑️ ${s.name} gelöscht`,'ok');
+  };
+  openModal('modal-confirm');
+}
+
+/* ════════════════════════════════════
+   SHARED MODALS
+════════════════════════════════════ */
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-wrap').forEach(el=>{el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');});});
+
+function openAddPlayer() {
+  document.getElementById('inp-pname').value='';
+  openModal('modal-add-player');
+  setTimeout(()=>document.getElementById('inp-pname').focus(),200);
+}
+function submitPlayer() {
+  const name=document.getElementById('inp-pname').value.trim();
+  if(!name){toast('Bitte Namen eingeben','err');return;}
+  if(db.players.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Spieler existiert bereits','err');return;}
+  db.players.push({id:uid(),name});save();closeModal('modal-add-player');renderPlayersTab();
+  toast(`✅ ${name} hinzugefügt!`,'ok');
+}
+document.getElementById('inp-pname').addEventListener('keydown',e=>{if(e.key==='Enter')submitPlayer();});
+
+function confirmDelPlayer(id) {
+  const p=player(id);if(!p)return;
+  const s=allTimeStats(p.id);
+  document.getElementById('conf-title').textContent=`${p.name} löschen?`;
+  document.getElementById('conf-msg').textContent=s.games>0?`${p.name} hat ${s.games} Runden gespielt. Die Sessions bleiben erhalten.`:`${p.name} noch nie gespielt. Wirklich löschen?`;
+  document.getElementById('conf-btn').onclick=()=>{
+    db.players=db.players.filter(x=>x.id!==id);save();closeModal('modal-confirm');renderPlayersTab();
+    toast(`🗑️ ${p.name} entfernt`,'ok');
+  };
+  openModal('modal-confirm');
+}
+
+function openSessDetail(id) {
+  const s=db.sessions.find(x=>x.id===id);if(!s)return;
+  const w=player(s.winner),fo=player(s.firstOut);
+  const fins=s.finalists.map(id=>player(id)).filter(Boolean);
+  const parts=s.participants.map(id=>player(id)).filter(Boolean);
+  const pot=s.stake*s.participants.length,n=s.participants.length;
+  const sn=season(s.seasonId);
+  const abr=s.participants.map(pid=>{
+    const p=player(pid),isW=s.winner===pid,gain=isW?s.stake*(n-1):-s.stake;
+    return `<div class="abr-row"><div class="abr-player"><div class="avatar av-28 ${avatarClass(pid)}">${initials(p?.name||'?')}</div>${p?.name||'?'} ${isW?'🏆':''}</div><span class="${gain>0?'pos':'neg'}" style="font-weight:800">${fmtMoney(gain)}</span></div>`;
+  }).join('');
+  document.getElementById('modal-sess-detail-body').innerHTML=`
+    <div class="modal-handle"></div>
+    <div class="modal-title">🃏 ${fmtDate(s.date)}</div>
+    <div class="modal-sub">${parts.map(p=>p.name).join(', ')} ${sn?'· <span class="badge b-muted">'+sn.name+'</span>':''}</div>
+    <div class="det-grid">
+      <div class="det-cell"><div class="det-lbl">Einsatz</div><div class="det-val">${s.stake} Ct</div></div>
+      <div class="det-cell"><div class="det-lbl">Gesamtpott</div><div class="det-val" style="color:var(--accent)">${(pot/100).toFixed(2).replace('.',',')} €</div></div>
+      <div class="det-cell" style="border-color:rgba(248,113,113,0.3)"><div class="det-lbl">🚫 1. Raus</div><div class="det-val" style="color:var(--danger)">${fo?.name||'?'}</div></div>
+      <div class="det-cell" style="border-color:rgba(245,158,11,0.35)"><div class="det-lbl">🏆 Sieger</div><div class="det-val" style="color:var(--accent)">${w?.name||'?'}</div></div>
+    </div>
+    <div class="mb-12"><div class="sec-title mb-8">🎯 Finalisten</div><div class="row gap-8">${fins.map(p=>`<span class="badge b-info">${p.name}</span>`).join('')}</div></div>
+    <div class="divider"></div>
+    <div class="sec-title mb-8">💰 Abrechnung</div>
+    <div class="abr-list mb-16">${abr}</div>
+    <div class="row gap-10">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeModal('modal-sess-detail')">Schließen</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="editSess('${s.id}')">✏️ Bearbeiten</button>
+      <button class="btn btn-danger btn-icon" onclick="confirmDelSess('${s.id}')" title="Löschen">🗑️</button>
+    </div>`;
+  openModal('modal-sess-detail');
+}
+function editSess(id) { const s=db.sessions.find(x=>x.id===id);if(!s)return;closeModal('modal-sess-detail');initWiz(s);navigate('new-session'); }
+function confirmDelSess(id) {
+  const s=db.sessions.find(x=>x.id===id);if(!s)return;
+  document.getElementById('conf-title').textContent='Runde löschen?';
+  document.getElementById('conf-msg').textContent=`Runde vom ${fmtDate(s.date)} wirklich löschen?`;
+  document.getElementById('conf-btn').onclick=()=>{db.sessions=db.sessions.filter(x=>x.id!==id);save();closeModal('modal-confirm');closeModal('modal-sess-detail');renderView(currentView);toast('🗑️ Runde gelöscht','ok');};
+  closeModal('modal-sess-detail');openModal('modal-confirm');
+}
+
+/* ════════════════════════════════════
+   UTILS
+════════════════════════════════════ */
+function toast(msg,type='ok') {
+  const el=document.createElement('div');el.className=`toast ${type}`;el.textContent=msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{el.style.transition='opacity .3s';el.style.opacity='0';setTimeout(()=>el.remove(),300);},2600);
+}
+function emptyState(ico,ttl,sub) { return `<div class="empty"><div class="empty-ico">${ico}</div><div class="empty-ttl">${ttl}</div><div class="empty-sub">${sub}</div></div>`; }
+function emptyWithCta(ico,ttl,sub,btn,action) { return `<div class="empty" style="padding:60px 0"><div class="empty-ico">${ico}</div><div class="empty-ttl">${ttl}</div><div class="empty-sub" style="margin-bottom:20px">${sub}</div><button class="btn btn-primary" onclick="${action}">${btn}</button></div>`; }
+
+/* PWA */
+if ('serviceWorker' in navigator) { window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{})); }
+
+/* Keyboard */
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')document.querySelectorAll('.modal-wrap.open').forEach(m=>m.classList.remove('open')); });
+
+/* ════════════════════════════════════
+   BOOT
+════════════════════════════════════ */
+async function boot() {
+  document.getElementById('hdr-date').textContent =
+    new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+    
+  await load();
+  
+  filterSeasonId = activeSeasonId() || '__all__';
+  initWiz();
+  renderDash();
+}
+boot();
+</script>
+</body>
+</html>
