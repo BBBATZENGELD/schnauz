@@ -548,6 +548,20 @@ async function load() {
   let localDb = { players:[], sessions:[], seasons:[] };
   if (localRaw) { try { localDb = JSON.parse(localRaw); } catch(e) {} }
 
+  // 1b. Try to recover from V1 if local V2 is basically empty (e.g. wiped)
+  if (!localDb.players || localDb.players.length === 0) {
+    try {
+      const v1Raw = localStorage.getItem('schnauz_tracker_v1');
+      if (v1Raw) {
+        const parsed = JSON.parse(v1Raw);
+        if (parsed.players && parsed.players.length > 0) {
+          localDb = parsed;
+          if (!localDb.seasons) localDb.seasons = [];
+        }
+      }
+    } catch (e) {}
+  }
+
   // 2. Fetch from Supabase
   const { data, error } = await supabase.from('app_state').select('db').eq('id', 1).single();
   
@@ -557,8 +571,13 @@ async function load() {
     db = localDb; // Fallback
   } else {
     const cloudDb = data.db || {};
+    
+    // Check if cloud actually has meaningful data (players)
+    const cloudHasData = cloudDb.players && cloudDb.players.length > 0;
+    const localHasData = localDb.players && localDb.players.length > 0;
+
     // 3. Migrate local to cloud if cloud is empty
-    if (Object.keys(cloudDb).length === 0 && (localDb.players.length > 0 || localDb.seasons.length > 0)) {
+    if (!cloudHasData && localHasData) {
       db = localDb;
       await forceSaveToCloud();
       statusEl.textContent = '☁️ ⬆️ Migriert';
