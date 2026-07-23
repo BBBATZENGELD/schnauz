@@ -532,7 +532,14 @@ let wiz = { step:1, date:'', stake:20, participants:[], firstOut:null, finalists
 
 const SUPA_URL = 'https://hbtqposetokatdswcxdy.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhidHFwb3NldG9rYXRkc3djeGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3OTg2ODYsImV4cCI6MjEwMDM3NDY4Nn0.DFb7SpmrmTL8GmbdkrCCNw5pyWJRQ6ENPmAB5-5O1lE';
-const supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+let supabase = null;
+try {
+  if (window.supabase) {
+    supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+  }
+} catch (e) {
+  console.error("Supabase init failed", e);
+}
 let isSaving = false;
 
 /* ════════════════════════════════════
@@ -563,11 +570,22 @@ async function load() {
   }
 
   // 2. Fetch from Supabase
-  const { data, error } = await supabase.from('app_state').select('db').eq('id', 1).single();
+  let data = null, error = null;
+  if (supabase) {
+    try {
+      const res = await supabase.from('app_state').select('db').eq('id', 1).single();
+      data = res.data;
+      error = res.error;
+    } catch(e) {
+      error = e;
+    }
+  } else {
+    error = { message: 'Supabase not loaded' };
+  }
   
-  if (error) {
+  if (error || !data) {
     console.error("Supabase Error:", error);
-    statusEl.textContent = '☁️ ❌ Fehler';
+    statusEl.textContent = '☁️ ❌ Offline';
     db = localDb; // Fallback
   } else {
     const cloudDb = data.db || {};
@@ -605,45 +623,63 @@ async function load() {
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
 
   // 4. Realtime updates
-  supabase.channel('public:app_state')
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
-      if (isSaving) return;
-      const newDb = payload.new.db;
-      db.players  = newDb.players  || [];
-      db.sessions = newDb.sessions || [];
-      db.seasons  = newDb.seasons  || [];
-      try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
-      
-      if (filterSeasonId !== '__all__' && !db.seasons.find(s => s.id === filterSeasonId)) {
-        filterSeasonId = activeSeasonId() || '__all__';
-      }
-      
-      if (currentView !== 'new-session') {
-        renderView(currentView);
-      }
-    })
-    .subscribe();
+  if (supabase) {
+    try {
+      supabase.channel('public:app_state')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
+          if (isSaving) return;
+          const newDb = payload.new.db;
+          db.players  = newDb.players  || [];
+          db.sessions = newDb.sessions || [];
+          db.seasons  = newDb.seasons  || [];
+          try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
+          
+          if (filterSeasonId !== '__all__' && !db.seasons.find(s => s.id === filterSeasonId)) {
+            filterSeasonId = activeSeasonId() || '__all__';
+          }
+          
+          if (currentView !== 'new-session') {
+            renderView(currentView);
+          }
+        })
+        .subscribe();
+    } catch(e) {
+      console.error("Realtime subscription failed", e);
+    }
+  }
 }
 
 async function forceSaveToCloud() {
-  await supabase.from('app_state').update({ db }).eq('id', 1);
+  if (!supabase) return;
+  try {
+    await supabase.from('app_state').update({ db }).eq('id', 1);
+  } catch(e) {}
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
 }
 
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
   
+  if (!supabase) return;
+  
   isSaving = true;
   document.getElementById('sync-status').textContent = '☁️ ⬆️';
-  supabase.from('app_state').update({ db }).eq('id', 1).then(({error}) => {
-    isSaving = false;
-    if (error) {
+  try {
+    supabase.from('app_state').update({ db }).eq('id', 1).then((res) => {
+      isSaving = false;
+      if (res && res.error) {
+        document.getElementById('sync-status').textContent = '☁️ ❌';
+        console.error(res.error);
+      } else {
+        document.getElementById('sync-status').textContent = '☁️ ✅ Live';
+      }
+    }).catch(e => {
+      isSaving = false;
       document.getElementById('sync-status').textContent = '☁️ ❌';
-      console.error(error);
-    } else {
-      document.getElementById('sync-status').textContent = '☁️ ✅ Live';
-    }
-  });
+    });
+  } catch(e) {
+    isSaving = false;
+  }
 }
 
 /* ════════════════════════════════════
