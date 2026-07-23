@@ -2,10 +2,11 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Schnauz Tracker</title>
   <meta name="description" content="Dein digitaler Schnauz-Tracker für die Mittagspause – Runden, Stats und Geldstände im Blick.">
-  <meta name="theme-color" content="#0c0800">
+  <meta name="theme-color" content="#121212">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Schnauz">
@@ -307,7 +308,7 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.1</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.2</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
@@ -532,10 +533,10 @@ let wiz = { step:1, date:'', stake:20, participants:[], firstOut:null, finalists
 
 const SUPA_URL = 'https://hbtqposetokatdswcxdy.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhidHFwb3NldG9rYXRkc3djeGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3OTg2ODYsImV4cCI6MjEwMDM3NDY4Nn0.DFb7SpmrmTL8GmbdkrCCNw5pyWJRQ6ENPmAB5-5O1lE';
-let supabase = null;
+let supaClient = null;
 try {
   if (window.supabase) {
-    supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+    supaClient = window.supabase.createClient(SUPA_URL, SUPA_KEY);
   }
 } catch (e) {
   console.error("Supabase init failed", e);
@@ -571,9 +572,9 @@ async function load() {
 
   // 2. Fetch from Supabase
   let data = null, error = null;
-  if (supabase) {
+  if (supaClient) {
     try {
-      const res = await supabase.from('app_state').select('db').eq('id', 1).single();
+      const res = await supaClient.from('app_state').select('db').eq('id', 1).single();
       data = res.data;
       error = res.error;
     } catch(e) {
@@ -623,9 +624,9 @@ async function load() {
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
 
   // 4. Realtime updates
-  if (supabase) {
+  if (supaClient) {
     try {
-      supabase.channel('public:app_state')
+      supaClient.channel('public:app_state')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state' }, payload => {
           if (isSaving) return;
           const newDb = payload.new.db;
@@ -650,9 +651,9 @@ async function load() {
 }
 
 async function forceSaveToCloud() {
-  if (!supabase) return;
+  if (!supaClient) return;
   try {
-    await supabase.from('app_state').update({ db }).eq('id', 1);
+    await supaClient.from('app_state').update({ db }).eq('id', 1);
   } catch(e) {}
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
 }
@@ -660,12 +661,12 @@ async function forceSaveToCloud() {
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
   
-  if (!supabase) return;
+  if (!supaClient) return;
   
   isSaving = true;
   document.getElementById('sync-status').textContent = '☁️ ⬆️';
   try {
-    supabase.from('app_state').update({ db }).eq('id', 1).then((res) => {
+    supaClient.from('app_state').update({ db }).eq('id', 1).then((res) => {
       isSaving = false;
       if (res && res.error) {
         document.getElementById('sync-status').textContent = '☁️ ❌';
