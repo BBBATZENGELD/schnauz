@@ -310,7 +310,7 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.5</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.6</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
@@ -1446,6 +1446,40 @@ function confirmDelSess(id) {
 /* ════════════════════════════════════
    UTILS
 ════════════════════════════════════ */
+function setAdminPin() {
+  const val = document.getElementById('set-pin-input').value.trim();
+  const msg = document.getElementById('pin-status-msg');
+  if (val === '') {
+    db.settings.adminPin = null;
+    localStorage.removeItem('isAdmin');
+    if (msg) msg.textContent = '🔓 PIN entfernt. App ist für alle offen.';
+    toast('🔓 PIN entfernt. App ist für alle offen.', 'ok');
+  } else {
+    db.settings.adminPin = val;
+    localStorage.setItem('isAdmin', 'true');
+    if (msg) msg.textContent = '🔒 PIN gesetzt! Andere Geräte müssen ihn eingeben.';
+    toast('🔒 PIN gespeichert!', 'ok');
+  }
+  save();
+}
+
+function verifyPin() {
+  const input = document.getElementById('pin-input').value;
+  if (input === db.settings.adminPin) {
+    localStorage.setItem('isAdmin', 'true');
+    closeModal('modal-admin-pin');
+    toast('🔓 Entsperrt!', 'ok');
+    if (pendingView) {
+      const target = pendingView;
+      pendingView = null;
+      navigate(target);
+    }
+  } else {
+    toast('❌ Falscher PIN', 'err');
+    document.getElementById('pin-input').value = '';
+  }
+}
+
 function toast(msg,type='ok') {
   const el=document.createElement('div');el.className=`toast ${type}`;el.textContent=msg;
   document.getElementById('toasts').appendChild(el);
