@@ -961,6 +961,9 @@ function renderDash() {
     .filter(x => x.s.games > 0)
     .sort((a,b) => b.s.wins - a.s.wins || b.s.bal - a.s.bal);
 
+  const withGamesBadge = db.players.filter(p=>stats(p.id,fSess).games>0);
+  const badgesData = calculateBadges(fSess, withGamesBadge);
+
   const lbEl = document.getElementById('dash-lb');
   if (!lb.length) {
     lbEl.innerHTML = emptyState('💰','Noch keine Daten','Trage deine erste Runde ein!');
@@ -971,7 +974,7 @@ function renderDash() {
         <div class="lb-rank">${rnk[i]||`#${i+1}`}</div>
         <div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div>
         <div class="lb-name">
-          <div class="lb-pname">${p.name}</div>
+          <div class="lb-pname">${p.name}${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div>
           <div class="lb-psub">${s.wins} Siege · ${s.winRate}% Quote · ${s.games} Sp.</div>
         </div>
         <div class="lb-bal ${s.bal>0?'pos':s.bal<0?'neg':'zer'}">${fmtMoney(s.bal)}</div>
@@ -1118,59 +1121,32 @@ function renderHistory() {
 /* ════════════════════════════════════
    STATS
 ════════════════════════════════════ */
-function renderStats() {
-  renderSeasonBar('sn-bar-stats');
-  const fSess=filteredSessions();
-
-  /* Imported data note */
-  const noteEl=document.getElementById('stats-import-note');
-  if (hasImportedData()) {
-    noteEl.style.display='';
-    noteEl.innerHTML=`<div style="background:var(--info-bg);border:1px solid rgba(96,165,250,0.3);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--info);display:flex;align-items:center;gap:8px"><span>📥</span><span>Diese Ansicht enthält <strong>importierte Statistiken</strong> aus Papierlisten.</span></div>`;
-  } else {
-    noteEl.style.display='none';
-  }
-
-  const withGames=db.players.filter(p=>stats(p.id,fSess).games>0);
-  let topWins=null,richest=null,brokest=null;
-  for (const p of withGames) {
-    const s=stats(p.id,fSess);
-    if (!topWins||s.wins>stats(topWins.id,fSess).wins) topWins=p;
-    if (!richest||s.bal>stats(richest.id,fSess).bal) richest=p;
-    if (!brokest||s.bal<stats(brokest.id,fSess).bal) brokest=p;
-  }
-
-  const agg=getAggregateTotals();
-  document.getElementById('stats-highlights').innerHTML=`
-    <div class="hi-card"><div class="hi-ico">🏆</div><div class="hi-lbl">Meiste Siege</div><div class="hi-val">${topWins?topWins.name:'–'}</div><div class="hi-sub">${topWins?stats(topWins.id,fSess).wins+' Siege':''}</div></div>
-    <div class="hi-card"><div class="hi-ico">💰</div><div class="hi-lbl">Größter Gewinner</div><div class="hi-val">${richest?richest.name:'–'}</div><div class="hi-sub" style="color:var(--success)">${richest?fmtMoney(stats(richest.id,fSess).bal):''}</div></div>
-    <div class="hi-card" style="border-color:rgba(248,113,113,0.2)"><div class="hi-ico">💸</div><div class="hi-lbl">Größter Verlierer</div><div class="hi-val" style="color:var(--danger)">${brokest?brokest.name:'–'}</div><div class="hi-sub" style="color:var(--danger)">${brokest?fmtMoney(stats(brokest.id,fSess).bal):''}</div></div>
-    <div class="hi-card"><div class="hi-ico">🃏</div><div class="hi-lbl">Runden</div><div class="hi-val">${agg.games}</div><div class="hi-sub">${(agg.pot/100).toFixed(2).replace('.',',')} € Pot</div></div>`;
-
-  const rows=withGames.map(p=>({p,s:stats(p.id,fSess)})).sort((a,b)=>b.s.wins-a.s.wins);
-  
-  // AWARDS & BADGES CALCULATION
+function calculateBadges(fSess, withGames) {
   let clutchKing = null, maxClutch = -1;
   let pechvogel = null, maxPech = -1;
   let sniper = null, maxWinrate = -1;
   let opfer = null, maxOpferRate = -1;
+  let richest = null, brokest = null;
   
-  for (const r of rows) {
-    const finals = r.s.wins + r.s.finalist;
+  for (const p of withGames) {
+    const s = stats(p.id, fSess);
+    if (!richest || s.bal > stats(richest.id, fSess).bal) richest = p;
+    if (!brokest || s.bal < stats(brokest.id, fSess).bal) brokest = p;
+
+    const finals = s.wins + s.finalist;
     if (finals >= 3) {
-      const clutch = r.s.wins / finals;
-      if (clutch > maxClutch) { maxClutch = clutch; clutchKing = r.p; }
-      const pech = r.s.finalist / finals;
-      if (pech > maxPech) { maxPech = pech; pechvogel = r.p; }
+      const clutch = s.wins / finals;
+      if (clutch > maxClutch) { maxClutch = clutch; clutchKing = p; }
+      const pech = s.finalist / finals;
+      if (pech > maxPech) { maxPech = pech; pechvogel = p; }
     }
-    if (r.s.games >= 5) {
-      if (r.s.winRate > maxWinrate) { maxWinrate = r.s.winRate; sniper = r.p; }
-      const opferRate = r.s.firsts / r.s.games;
-      if (opferRate > maxOpferRate) { maxOpferRate = opferRate; opfer = r.p; }
+    if (s.games >= 5) {
+      if (s.winRate > maxWinrate) { maxWinrate = s.winRate; sniper = p; }
+      const opferRate = s.firsts / s.games;
+      if (opferRate > maxOpferRate) { maxOpferRate = opferRate; opfer = p; }
     }
   }
-  
-  // Nemesis Calculation
+
   let nemesisMap = {};
   for (const p of withGames) {
     let lostTo = {};
@@ -1186,24 +1162,55 @@ function renderStats() {
     if (nemId && maxLoss >= 3) { nemesisMap[p.id] = player(nemId); }
   }
 
-  // Assign Badges
-  for (const r of rows) {
-    r.badges = [];
-    if (clutchKing && r.p.id === clutchKing.id) r.badges.push('<span class="bdg" title="Clutch-King: Gewinnt seine Finals fast immer">👑</span>');
-    if (pechvogel && r.p.id === pechvogel.id && pechvogel.id !== clutchKing?.id) r.badges.push('<span class="bdg" title="Pechvogel: Fliegt meistens im Finale">📉</span>');
-    if (sniper && r.p.id === sniper.id) r.badges.push('<span class="bdg" title="Sniper: Höchste Siegrate (min. 5 Spiele)">🎯</span>');
-    if (opfer && r.p.id === opfer.id) r.badges.push('<span class="bdg" title="Kanonenfutter: Höchste Erste-Raus-Rate">💀</span>');
-    if (richest && r.p.id === richest.id && r.s.bal > 0) r.badges.push('<span class="bdg" title="High Roller: Größter Profit">💰</span>');
-    if (brokest && r.p.id === brokest.id && r.s.bal < 0) r.badges.push('<span class="bdg" title="Sponsor: Höchster Verlust">💸</span>');
-    if (nemesisMap[r.p.id]) r.badges.push(`<span class="bdg" title="Nemesis: Zieht am häufigsten gegen ${nemesisMap[r.p.id].name} den Kürzeren">😈</span>`);
+  return { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, nemesisMap };
+}
+
+function getPlayerBadgesHTML(pId, badgesData, fSess) {
+  const { clutchKing, pechvogel, sniper, opfer, richest, brokest, nemesisMap } = badgesData;
+  const badges = [];
+  const s = stats(pId, fSess);
+  if (clutchKing && pId === clutchKing.id) badges.push('<span class="bdg" title="Clutch-King: Gewinnt seine Finals fast immer">👑</span>');
+  if (pechvogel && pId === pechvogel.id && pechvogel.id !== clutchKing?.id) badges.push('<span class="bdg" title="Pechvogel: Fliegt meistens im Finale">📉</span>');
+  if (sniper && pId === sniper.id) badges.push('<span class="bdg" title="Sniper: Höchste Siegrate (min. 5 Spiele)">🎯</span>');
+  if (opfer && pId === opfer.id) badges.push('<span class="bdg" title="Kanonenfutter: Höchste Erste-Raus-Rate">💀</span>');
+  if (richest && pId === richest.id && s.bal > 0) badges.push('<span class="bdg" title="High Roller: Größter Profit">💰</span>');
+  if (brokest && pId === brokest.id && s.bal < 0) badges.push('<span class="bdg" title="Sponsor: Höchster Verlust">💸</span>');
+  if (nemesisMap[pId]) badges.push(`<span class="bdg" title="Nemesis: Zieht am häufigsten gegen ${nemesisMap[pId].name} den Kürzeren">😈</span>`);
+  return badges.join('');
+}
+
+function renderStats() {
+  renderSeasonBar('sn-bar-stats');
+  const fSess=filteredSessions();
+
+  /* Imported data note */
+  const noteEl=document.getElementById('stats-import-note');
+  if (hasImportedData()) {
+    noteEl.style.display='';
+    noteEl.innerHTML=`<div style="background:var(--info-bg);border:1px solid rgba(96,165,250,0.3);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--info);display:flex;align-items:center;gap:8px"><span>📥</span><span>Diese Ansicht enthält <strong>importierte Statistiken</strong> aus Papierlisten.</span></div>`;
+  } else {
+    noteEl.style.display='none';
   }
 
+  const withGames=db.players.filter(p=>stats(p.id,fSess).games>0);
+  const agg=getAggregateTotals();
+  
+  const badgesData = calculateBadges(fSess, withGames);
+  const { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest } = badgesData;
+
+  document.getElementById('stats-highlights').innerHTML=`
+    <div class="hi-card"><div class="hi-ico">🏆</div><div class="hi-lbl">Meiste Siege</div><div class="hi-val">${sniper?sniper.name:'–'}</div><div class="hi-sub">${sniper?stats(sniper.id,fSess).wins+' Siege':''}</div></div>
+    <div class="hi-card"><div class="hi-ico">💰</div><div class="hi-lbl">Größter Gewinner</div><div class="hi-val">${richest?richest.name:'–'}</div><div class="hi-sub" style="color:var(--success)">${richest?fmtMoney(stats(richest.id,fSess).bal):''}</div></div>
+    <div class="hi-card" style="border-color:rgba(248,113,113,0.2)"><div class="hi-ico">💸</div><div class="hi-lbl">Größter Verlierer</div><div class="hi-val" style="color:var(--danger)">${brokest?brokest.name:'–'}</div><div class="hi-sub" style="color:var(--danger)">${brokest?fmtMoney(stats(brokest.id,fSess).bal):''}</div></div>
+    <div class="hi-card"><div class="hi-ico">🃏</div><div class="hi-lbl">Runden</div><div class="hi-val">${agg.games}</div><div class="hi-sub">${(agg.pot/100).toFixed(2).replace('.',',')} € Pot</div></div>`;
+
+  const rows=withGames.map(p=>({p,s:stats(p.id,fSess)})).sort((a,b)=>b.s.wins-a.s.wins);
   const tbody=document.getElementById('stats-tbody');
   if (!rows.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; }
   else {
-    tbody.innerHTML=rows.map(({p,s,badges})=>`
+    tbody.innerHTML=rows.map(({p,s})=>`
       <tr>
-        <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong>${badges.join('')}</div></td>
+        <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong>${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div></td>
         <td>${s.games}</td><td><strong>${s.wins}</strong></td>
         <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
         <td style="color:var(--danger)">${s.firsts}</td>
@@ -1218,6 +1225,8 @@ function renderStats() {
   if (pechvogel && pechvogel.id !== clutchKing?.id) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">📉</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${pechvogel.name} ist der Pechvogel</div><div style="font-size:13px;color:var(--text-muted)">Geht in ${(maxPech*100).toFixed(0)}% seiner Final-Teilnahmen als Verlierer hervor.</div></div></div>`);
   if (sniper) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🎯</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${sniper.name} ist der Sniper</div><div style="font-size:13px;color:var(--text-muted)">Trifft fast immer: Höchste Siegrate mit ${maxWinrate}%.</div></div></div>`);
   if (opfer) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💀</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${opfer.name} als Kanonenfutter</div><div style="font-size:13px;color:var(--text-muted)">Fliegt in ${(maxOpferRate*100).toFixed(0)}% der Spiele als Erster raus.</div></div></div>`);
+  if (richest && stats(richest.id, fSess).bal > 0) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💰</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${richest.name} ist der High Roller</div><div style="font-size:13px;color:var(--text-muted)">Größter Profit am Tisch.</div></div></div>`);
+  if (brokest && stats(brokest.id, fSess).bal < 0) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💸</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${brokest.name} ist der Sponsor</div><div style="font-size:13px;color:var(--text-muted)">Versorgt die anderen Spieler brav mit Geld.</div></div></div>`);
   
   if (awHtml.length===0) awHtml.push('<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Es wurden in dieser Saison noch nicht genug Runden für Awards gespielt.</div>');
   document.getElementById('stats-awards').innerHTML = awHtml.join('<div style="height:1px;background:var(--border-light);margin:4px 0;"></div>');
