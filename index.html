@@ -310,7 +310,7 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.4</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.5</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
@@ -377,12 +377,6 @@
     </div>
 
     <!-- MANAGEMENT -->
-      </div>
-    </div>
-
-    <!-- Security Section in view-players -->
-    <div class="view" id="view-players-security" style="display:none;"></div> <!-- Not using a separate view, just appending to content wrap of view-players -->
-          
     <div class="view" id="view-players">
       <div class="content-wrap">
         <div class="row gap-12 mb-8" style="justify-content:space-between">
@@ -393,25 +387,27 @@
         <div class="sub-tabs mb-16">
           <button class="sub-tab active" id="stab-pl" onclick="showSubTab('players')">👥 Spieler</button>
           <button class="sub-tab"        id="stab-sn" onclick="showSubTab('seasons')">🏆 Saisons</button>
+          <button class="sub-tab"        id="stab-sec" onclick="showSubTab('security')">🔒 Sicherheit</button>
         </div>
         <div id="sub-pl-cont"><div class="pl-list" id="pl-list"></div></div>
         <div id="sub-sn-cont" style="display:none">
           <div class="sn-list" id="sn-list"></div>
           <button class="btn btn-primary btn-full mt-16" onclick="openAddSeason()">🏆 Neue Saison erstellen</button>
         </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;margin-top:40px;">
-          <div class="sec-title">Sicherheit</div>
-        </div>
-        <div class="det-cell" style="margin-bottom:16px;">
-          <div class="det-lbl">Admin-PIN</div>
-          <div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Wenn gesetzt, wird das Eintragen neuer Runden und die Verwaltung gesperrt.</div>
-          <div style="display:flex;gap:8px;">
-            <input type="password" id="set-pin-input" class="form-input" placeholder="Neuer PIN (z.B. 1234)" inputmode="numeric" style="flex:1;">
-            <button class="btn btn-primary" onclick="setAdminPin()">Speichern</button>
+        <div id="sub-sec-cont" style="display:none">
+          <div class="det-cell" style="margin-top:8px;">
+            <div class="det-lbl">Admin-PIN</div>
+            <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Wenn gesetzt, müssen Personen ohne PIN die App im Lese-Modus nutzen (Stats, Verlauf, Start). Das Eintragen und Verwalten ist dann gesperrt.</div>
+            <div class="form-group">
+              <label class="form-label" for="set-pin-input">Neuer PIN</label>
+              <div style="display:flex;gap:8px;">
+                <input type="password" id="set-pin-input" class="form-input" placeholder="z.B. 1234" inputmode="numeric" style="flex:1;">
+                <button class="btn btn-primary" onclick="setAdminPin()">Speichern</button>
+              </div>
+            </div>
+            <div id="pin-status-msg" style="font-size:12px;color:var(--text-dim);margin-top:8px;"></div>
           </div>
         </div>
-
       </div>
     </div>
 
@@ -1146,18 +1142,29 @@ function renderStats() {
 function renderMgmt() { showSubTab(playerSubTab); }
 
 function showSubTab(tab) {
-  playerSubTab=tab;
-  document.getElementById('stab-pl').classList.toggle('active',tab==='players');
-  document.getElementById('stab-sn').classList.toggle('active',tab==='seasons');
-  document.getElementById('sub-pl-cont').style.display=tab==='players'?'':'none';
-  document.getElementById('sub-sn-cont').style.display=tab==='seasons'?'':'none';
-  const btn=document.getElementById('pl-act-btn');
-  if (tab==='players'){btn.textContent='+ Spieler';btn.onclick=openAddPlayer;}
-  else {btn.textContent='+ Saison';btn.onclick=openAddSeason;}
-  if (tab==='players') renderPlayersTab(); else renderSeasonsTab();
+  playerSubTab = tab;
+  document.getElementById('stab-pl').classList.toggle('active', tab === 'players');
+  document.getElementById('stab-sn').classList.toggle('active', tab === 'seasons');
+  document.getElementById('stab-sec').classList.toggle('active', tab === 'security');
+  document.getElementById('sub-pl-cont').style.display  = tab === 'players'  ? '' : 'none';
+  document.getElementById('sub-sn-cont').style.display  = tab === 'seasons'  ? '' : 'none';
+  document.getElementById('sub-sec-cont').style.display = tab === 'security' ? '' : 'none';
+  const btn = document.getElementById('pl-act-btn');
+  if (tab === 'players')  { btn.style.display=''; btn.textContent='+ Spieler'; btn.onclick = openAddPlayer; }
+  else if (tab === 'seasons') { btn.style.display=''; btn.textContent='+ Saison'; btn.onclick = openAddSeason; }
+  else { btn.style.display = 'none'; }
+  if (tab === 'players')  renderPlayersTab();
+  else if (tab === 'seasons') renderSeasonsTab();
+  else {
+    // Populate PIN field with current value
+    const pinInp = document.getElementById('set-pin-input');
+    const msg = document.getElementById('pin-status-msg');
+    if (pinInp) pinInp.value = '';
+    if (msg) msg.textContent = db.settings?.adminPin ? '🔒 PIN ist gesetzt. Feld leer lassen und Speichern zum Entfernen.' : '🔓 Kein PIN gesetzt. Alle können eintragen.';
+  }
 }
 
-function plViewAction() { if(playerSubTab==='players')openAddPlayer();else openAddSeason(); }
+function plViewAction() { if(playerSubTab==='players')openAddPlayer();else if(playerSubTab==='seasons')openAddSeason(); }
 
 /* ── Players Tab ── */
 function renderPlayersTab() {
