@@ -15,6 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     :root {
@@ -141,6 +142,8 @@
 
     /* ── BADGES ── */
     .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .bdg { display:inline-block; font-size:14px; margin-left:4px; cursor:help; filter: grayscale(20%); transition: transform 0.2s, filter 0.2s; }
+    .bdg:hover { transform: scale(1.3); filter: grayscale(0%); z-index: 10; position: relative; }
     .b-gold    { background: rgba(245,158,11,0.15); color: var(--accent-light); border: 1px solid rgba(245,158,11,0.3); }
     .b-success { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
     .b-danger  { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
@@ -310,7 +313,7 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.0.6</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.1.0</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
@@ -372,6 +375,28 @@
             <thead><tr><th>Spieler</th><th>Spiele</th><th>Siege</th><th>Quote</th><th>1. Raus</th><th>Finalist</th><th>Bilanz</th></tr></thead>
             <tbody id="stats-tbody"></tbody>
           </table>
+        </div>
+
+        <div class="sec-head mb-8 mt-16"><span class="sec-title">🕸️ Profil-Vergleich</span></div>
+        <div class="det-cell" style="margin-bottom:16px;">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Wähle bis zu 3 Spieler, um ihre Stats direkt zu vergleichen.</div>
+          <div class="form-group" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <select id="radar-p1" class="form-input" style="flex:1" onchange="updateRadarChart()"></select>
+            <select id="radar-p2" class="form-input" style="flex:1" onchange="updateRadarChart()">
+               <option value="">- Vergleich mit -</option>
+            </select>
+            <select id="radar-p3" class="form-input" style="flex:1" onchange="updateRadarChart()">
+               <option value="">- Vergleich mit -</option>
+            </select>
+          </div>
+          <div style="position:relative; width:100%; height:300px; margin-top:16px;">
+            <canvas id="radarChart"></canvas>
+          </div>
+        </div>
+
+        <div class="sec-head mb-8 mt-16"><span class="sec-title">🏅 Saison-Awards</span></div>
+        <div class="det-cell" style="margin-bottom:32px;">
+           <div id="stats-awards" style="display:flex;flex-direction:column;gap:16px;"></div>
         </div>
       </div>
     </div>
@@ -1123,17 +1148,160 @@ function renderStats() {
     <div class="hi-card"><div class="hi-ico">🃏</div><div class="hi-lbl">Runden</div><div class="hi-val">${agg.games}</div><div class="hi-sub">${(agg.pot/100).toFixed(2).replace('.',',')} € Pot</div></div>`;
 
   const rows=withGames.map(p=>({p,s:stats(p.id,fSess)})).sort((a,b)=>b.s.wins-a.s.wins);
+  
+  // AWARDS & BADGES CALCULATION
+  let clutchKing = null, maxClutch = -1;
+  let pechvogel = null, maxPech = -1;
+  let sniper = null, maxWinrate = -1;
+  let opfer = null, maxOpferRate = -1;
+  
+  for (const r of rows) {
+    const finals = r.s.wins + r.s.finalist;
+    if (finals >= 3) {
+      const clutch = r.s.wins / finals;
+      if (clutch > maxClutch) { maxClutch = clutch; clutchKing = r.p; }
+      const pech = r.s.finalist / finals;
+      if (pech > maxPech) { maxPech = pech; pechvogel = r.p; }
+    }
+    if (r.s.games >= 5) {
+      if (r.s.winRate > maxWinrate) { maxWinrate = r.s.winRate; sniper = r.p; }
+      const opferRate = r.s.firsts / r.s.games;
+      if (opferRate > maxOpferRate) { maxOpferRate = opferRate; opfer = r.p; }
+    }
+  }
+  
+  // Nemesis Calculation
+  let nemesisMap = {};
+  for (const p of withGames) {
+    let lostTo = {};
+    for (const sess of fSess) {
+       if (sess.participants.includes(p.id) && sess.winner && sess.winner !== p.id) {
+          lostTo[sess.winner] = (lostTo[sess.winner] || 0) + 1;
+       }
+    }
+    let nemId = null, maxLoss = 0;
+    for (const [wId, cnt] of Object.entries(lostTo)) {
+       if (cnt > maxLoss) { maxLoss = cnt; nemId = wId; }
+    }
+    if (nemId && maxLoss >= 3) { nemesisMap[p.id] = player(nemId); }
+  }
+
+  // Assign Badges
+  for (const r of rows) {
+    r.badges = [];
+    if (clutchKing && r.p.id === clutchKing.id) r.badges.push('<span class="bdg" title="Clutch-King: Gewinnt seine Finals fast immer">👑</span>');
+    if (pechvogel && r.p.id === pechvogel.id && pechvogel.id !== clutchKing?.id) r.badges.push('<span class="bdg" title="Pechvogel: Fliegt meistens im Finale">📉</span>');
+    if (sniper && r.p.id === sniper.id) r.badges.push('<span class="bdg" title="Sniper: Höchste Siegrate (min. 5 Spiele)">🎯</span>');
+    if (opfer && r.p.id === opfer.id) r.badges.push('<span class="bdg" title="Kanonenfutter: Höchste Erste-Raus-Rate">💀</span>');
+    if (richest && r.p.id === richest.id && r.s.bal > 0) r.badges.push('<span class="bdg" title="High Roller: Größter Profit">💰</span>');
+    if (brokest && r.p.id === brokest.id && r.s.bal < 0) r.badges.push('<span class="bdg" title="Sponsor: Höchster Verlust">💸</span>');
+    if (nemesisMap[r.p.id]) r.badges.push(`<span class="bdg" title="Nemesis: Zieht am häufigsten gegen ${nemesisMap[r.p.id].name} den Kürzeren">😈</span>`);
+  }
+
   const tbody=document.getElementById('stats-tbody');
-  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; return; }
-  tbody.innerHTML=rows.map(({p,s})=>`
-    <tr>
-      <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong></div></td>
-      <td>${s.games}</td><td><strong>${s.wins}</strong></td>
-      <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
-      <td style="color:var(--danger)">${s.firsts}</td>
-      <td>${s.finalist}</td>
-      <td class="${s.bal>0?'pos':s.bal<0?'neg':'zer'}" style="font-weight:800">${fmtMoney(s.bal)}</td>
-    </tr>`).join('');
+  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; }
+  else {
+    tbody.innerHTML=rows.map(({p,s,badges})=>`
+      <tr>
+        <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong>${badges.join('')}</div></td>
+        <td>${s.games}</td><td><strong>${s.wins}</strong></td>
+        <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
+        <td style="color:var(--danger)">${s.firsts}</td>
+        <td>${s.finalist}</td>
+        <td class="${s.bal>0?'pos':s.bal<0?'neg':'zer'}" style="font-weight:800">${fmtMoney(s.bal)}</td>
+      </tr>`).join('');
+  }
+
+  // Render Awards UI
+  const awHtml = [];
+  if (clutchKing) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px;filter:drop-shadow(0 0 10px rgba(226,184,84,0.4))">👑</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${clutchKing.name} ist der Clutch-King</div><div style="font-size:13px;color:var(--text-muted)">Gewinnt ${(maxClutch*100).toFixed(0)}% seiner Final-Teilnahmen. Pure Nervenstärke!</div></div></div>`);
+  if (pechvogel && pechvogel.id !== clutchKing?.id) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">📉</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${pechvogel.name} ist der Pechvogel</div><div style="font-size:13px;color:var(--text-muted)">Geht in ${(maxPech*100).toFixed(0)}% seiner Final-Teilnahmen als Verlierer hervor.</div></div></div>`);
+  if (sniper) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🎯</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${sniper.name} ist der Sniper</div><div style="font-size:13px;color:var(--text-muted)">Trifft fast immer: Höchste Siegrate mit ${maxWinrate}%.</div></div></div>`);
+  if (opfer) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💀</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${opfer.name} als Kanonenfutter</div><div style="font-size:13px;color:var(--text-muted)">Fliegt in ${(maxOpferRate*100).toFixed(0)}% der Spiele als Erster raus.</div></div></div>`);
+  
+  if (awHtml.length===0) awHtml.push('<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Es wurden in dieser Saison noch nicht genug Runden für Awards gespielt.</div>');
+  document.getElementById('stats-awards').innerHTML = awHtml.join('<div style="height:1px;background:var(--border-light);margin:4px 0;"></div>');
+
+  // Populate Radar Chart Selects
+  const p1Sel = document.getElementById('radar-p1');
+  const p2Sel = document.getElementById('radar-p2');
+  const p3Sel = document.getElementById('radar-p3');
+  const p1Val = p1Sel.value, p2Val = p2Sel.value, p3Val = p3Sel.value;
+  
+  const opts = withGames.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  p1Sel.innerHTML = opts;
+  p2Sel.innerHTML = `<option value="">- Vergleich mit -</option>` + opts;
+  p3Sel.innerHTML = `<option value="">- Vergleich mit -</option>` + opts;
+  
+  if (p1Val && withGames.find(p=>p.id===p1Val)) p1Sel.value = p1Val;
+  else if (withGames.length > 0) p1Sel.value = withGames[0].id;
+  
+  if (p2Val && withGames.find(p=>p.id===p2Val)) p2Sel.value = p2Val;
+  else if (withGames.length > 1) p2Sel.value = withGames[1].id;
+  
+  if (p3Val && withGames.find(p=>p.id===p3Val)) p3Sel.value = p3Val;
+  
+  updateRadarChart();
+}
+
+let radarChartInst = null;
+function updateRadarChart() {
+  const p1 = document.getElementById('radar-p1').value;
+  const p2 = document.getElementById('radar-p2').value;
+  const p3 = document.getElementById('radar-p3').value;
+  const fSess = filteredSessions();
+  
+  const calcData = (id) => {
+     if (!id) return null;
+     const st = stats(id, fSess);
+     if (!st || st.games === 0) return null;
+     const surv = 100 - ((st.firsts / st.games) * 100);
+     const finals = st.wins + st.finalist;
+     const clutch = finals > 0 ? (st.wins / finals) * 100 : 0;
+     const finalRate = (finals / st.games) * 100;
+     return { name: player(id).name, data: [st.winRate, surv, clutch, finalRate] };
+  };
+  
+  const d1 = calcData(p1);
+  const d2 = calcData(p2);
+  const d3 = calcData(p3);
+  
+  const datasets = [];
+  if (d1) datasets.push({ label: d1.name, data: d1.data, backgroundColor: 'rgba(226, 184, 84, 0.25)', borderColor: '#E2B854', borderWidth: 2, pointBackgroundColor: '#E2B854' });
+  if (d2) datasets.push({ label: d2.name, data: d2.data, backgroundColor: 'rgba(80, 200, 120, 0.25)', borderColor: '#50C878', borderWidth: 2, pointBackgroundColor: '#50C878' });
+  if (d3) datasets.push({ label: d3.name, data: d3.data, backgroundColor: 'rgba(96, 165, 250, 0.25)', borderColor: '#60A5FA', borderWidth: 2, pointBackgroundColor: '#60A5FA' });
+  
+  const ctx = document.getElementById('radarChart').getContext('2d');
+  if (radarChartInst) radarChartInst.destroy();
+  
+  if (datasets.length === 0) return;
+
+  Chart.defaults.color = '#A5C2B4';
+  Chart.defaults.font.family = 'Outfit';
+  
+  radarChartInst = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: ['Siegrate %', 'Überleben %', 'Clutch %', 'Final-Rate %'],
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: { display: false, stepSize: 25 },
+          grid: { color: 'rgba(255,255,255,0.08)' },
+          angleLines: { color: 'rgba(255,255,255,0.08)' },
+          pointLabels: { font: { size: 12, weight: '700' }, color: '#E8F0EC' }
+        }
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#E8F0EC', padding: 20, font: { size: 13, weight: '600' } } }
+      }
+    }
+  });
 }
 
 /* ════════════════════════════════════
