@@ -180,184 +180,13 @@
     .b-success { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
     .b-danger  { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
     .b-info    { background: var(--info-bg); color: var(--info); border: 1px solid rgba(96,165,250,0.3); }
-/* ── SECTION HEADER ── */
+    .b-muted   { background: rgba(255,255,255,0.04); color: var(--text-muted); border: 1px solid var(--border); }
+
+    /* ── SECTION HEADER ── */
     .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .sec-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
 
-    function computeStreaks(allSessions) {
-  // Returns { currentStreak: {pid: N}, bestStreak: {pid: N} }
-  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
-  const cur = {}, best = {};
-  db.players.forEach(p => { cur[p.id] = 0; best[p.id] = 0; });
-  for (const s of sorted) {
-    if (!s.winner) continue;
-    for (const pid of s.participants) {
-      if (pid === s.winner) { cur[pid] = (cur[pid]||0) + 1; if (cur[pid] > (best[pid]||0)) best[pid] = cur[pid]; }
-      else { cur[pid] = 0; }
-    }
-  }
-  return { cur, best };
-}
-
-function computeElo(allSessions) {
-  const elo = {};
-  db.players.forEach(p => elo[p.id] = 1000);
-  const K = 32;
-  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
-  for (const s of sorted) {
-    if (!s.winner || !s.participants?.length) continue;
-    const n = s.participants.length;
-    const avgEnemyElo = s.participants.filter(id=>id!==s.winner).reduce((sum,id)=>(sum+(elo[id]||1000)),0) / Math.max(n-1,1);
-    const expected = 1 / (1 + Math.pow(10, (avgEnemyElo - (elo[s.winner]||1000)) / 400));
-    elo[s.winner] = Math.round((elo[s.winner]||1000) + K * (1-expected));
-    s.participants.filter(id=>id!==s.winner).forEach(id => {
-      if (id === s.firstOut) elo[id] = Math.round((elo[id]||1000) + K * (0 - (1-expected)));
-      else elo[id] = Math.round((elo[id]||1000) + K * (0.3 - (1-expected)));
-    });
-  }
-  return elo;
-}
-
-/* ── CONFETTI ── */
-function launchConfetti() {
-  const canvas = document.getElementById('confetti-canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-  const pieces = Array.from({length:120}, () => ({
-    x: Math.random()*canvas.width, y: -10, w: Math.random()*10+5, h: Math.random()*6+4,
-    col: `hsl(${Math.random()*360},80%,60%)`, r: Math.random()*6-3,
-    vy: Math.random()*4+3, vx: Math.random()*4-2, rot: Math.random()*360
-  }));
-  let frame = 0;
-  function draw() {
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    pieces.forEach(p => {
-      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
-      ctx.fillStyle=p.col; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
-      p.x+=p.vx; p.y+=p.vy; p.rot+=p.r; p.vy+=0.08;
-    });
-    if(++frame < 90) requestAnimationFrame(draw);
-    else ctx.clearRect(0,0,canvas.width,canvas.height);
-  }
-  draw();
-}
-
-/* ── H2H RENDER ── */
-function renderH2H() {
-  const p1id = document.getElementById('h2h-p1')?.value;
-  const p2id = document.getElementById('h2h-p2')?.value;
-  const res = document.getElementById('h2h-result');
-  if (!res) return;
-  if (!p1id || !p2id || p1id === p2id) { res.innerHTML = '<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Bitte zwei verschiedene Spieler wählen.</div>'; return; }
-  const p1 = player(p1id), p2 = player(p2id);
-  const fSess = filteredSessions().filter(s => s.participants.includes(p1id) && s.participants.includes(p2id));
-  if (!fSess.length) { res.innerHTML = `<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">${p1.name} und ${p2.name} haben noch keine gemeinsame Runde.</div>`; return; }
-  const w1=fSess.filter(s=>s.winner===p1id).length, w2=fSess.filter(s=>s.winner===p2id).length;
-  const fo1=fSess.filter(s=>s.firstOut===p1id).length, fo2=fSess.filter(s=>s.firstOut===p2id).length;
-  const bal1=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p1id?s.stake*(n-1):-s.stake); },0);
-  const bal2=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p2id?s.stake*(n-1):-s.stake); },0);
-  const total = w1+w2; const pct1 = total>0?Math.round(w1/total*100):50;
-  res.innerHTML=`
-    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;">${fSess.length} gemeinsame Runden</div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-      <span style="font-weight:800">${p1.name}</span><span style="font-weight:800">${p2.name}</span></div>
-    <div class="h2h-bar"><div class="h2h-a" style="width:${pct1}%">${pct1>15?w1+' Siege':''}</div><div class="h2h-b">${w2} Siege</div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
-      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo1}</div></div>
-      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo2}</div></div>
-      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal1>0?'pos':bal1<0?'neg':'zer'}">${fmtMoney(bal1)}</div></div>
-      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal2>0?'pos':bal2<0?'neg':'zer'}">${fmtMoney(bal2)}</div></div>
-    </div>`;
-}
-
-/* ── PLAYER PROFILE ── */
-function openProfile(pid) {
-  currentView = 'player-profile';
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.getElementById('view-player-profile').classList.add('active');
-  window.scrollTo(0,0);
-  renderProfile(pid);
-}
-function renderProfile(pid) {
-  const p = player(pid);
-  if (!p) return;
-  const fSess = filteredSessions();
-  const ats = allTimeStats(pid);
-  const fs = stats(pid, fSess);
-  const badgesData = calculateBadges(fSess, db.players.filter(x=>stats(x.id,fSess).games>0));
-  const allStreaks = computeStreaks(db.sessions);
-  const eloMap = computeElo(db.sessions);
-  const curStreak = allStreaks.cur[pid]||0;
-  const bestStreak = allStreaks.best[pid]||0;
-  const eloPts = eloMap[pid]||1000;
-  const badgesHtml = getPlayerBadgesHTML(pid, badgesData, fSess);
-  
-  // Formkurve (letzte 10 Sessions)
-  const mySess = [...fSess.filter(s=>s.participants.includes(pid))].sort((a,b)=>a.date.localeCompare(b.date)).slice(-10);
-  const gains = mySess.map(s=>s.winner===pid ? s.stake*(s.participants.length-1) : -s.stake);
-
-  // Erzfeind
-  let lostTo={}, nemStr='';
-  for (const s of fSess) { if(s.participants.includes(pid)&&s.winner&&s.winner!==pid) lostTo[s.winner]=(lostTo[s.winner]||0)+1; }
-  let nemId=null,maxL=0;
-  for(const[id,cnt] of Object.entries(lostTo)){if(cnt>maxL){maxL=cnt;nemId=id;}}
-  if(nemId&&maxL>=2){const nem=player(nemId);nemStr=`<div style="margin-top:8px;font-size:13px;color:var(--text-muted)">😈 Erzfeind: <strong>${nem.name}</strong> (${maxL}x verloren)</div>`;}
-
-  const avCls = avatarClass(pid);
-  const avInner = p.emoji ? p.emoji : initials(p.name);
-  const avHasEmoji = p.emoji ? 'has-emoji' : '';
-
-  document.getElementById('profile-wrap').innerHTML=`
-    <button class="btn btn-ghost btn-sm mb-12" onclick="navigate('stats')">← Zurück</button>
-    <div class="profile-hero">
-      <div class="profile-av ${avCls} ${avHasEmoji}">${avInner}</div>
-      <div class="profile-name">${p.name}</div>
-      ${curStreak>=2?`<div class="profile-title">${'\ud83d\udd25'.repeat(Math.min(curStreak,5))} ${curStreak}er Siegesserie!</div>`:'<div class="profile-title">Schnauz-Spieler</div>'}
-      <div class="profile-badges">${badgesHtml||'<span style="font-size:13px;color:var(--text-dim)">Noch keine Badges</span>'}</div>
-      ${nemStr}
-    </div>
-    <div class="stat-grid">
-      <div class="stat-box"><div class="sv">${fs.games}</div><div class="sl">Spiele</div></div>
-      <div class="stat-box"><div class="sv">${fs.wins}</div><div class="sl">Siege</div></div>
-      <div class="stat-box"><div class="sv ${fs.bal>0?'pos':fs.bal<0?'neg':'zer'}">${fmtMoney(fs.bal)}</div><div class="sl">Bilanz</div></div>
-      <div class="stat-box"><div class="sv">${fs.winRate}%</div><div class="sl">Siegrate</div></div>
-      <div class="stat-box"><div class="sv">${fs.flawlessWins}</div><div class="sl">Clean Sheets</div></div>
-      <div class="stat-box"><div class="sv" style="color:var(--accent);">${eloPts}</div><div class="sl">Elo</div></div>
-    </div>
-    <div class="sec-head mb-8"><span class="sec-title">📊 Formkurve (letzte 10)</span></div>
-    <div class="det-cell mb-16">
-      <canvas id="profile-chart" height="110"></canvas>
-    </div>
-    <div class="sec-head mb-8"><span class="sec-title">🎙️ All-Time Stats</span></div>
-    <div class="stat-grid" style="margin-bottom:18px">
-      <div class="stat-box"><div class="sv">${ats.games}</div><div class="sl">Gesamt</div></div>
-      <div class="stat-box"><div class="sv">${ats.wins}</div><div class="sl">Siege</div></div>
-      <div class="stat-box"><div class="sv ${ats.bal>0?'pos':ats.bal<0?'neg':'zer'}">${fmtMoney(ats.bal)}</div><div class="sl">Bilanz</div></div>
-      <div class="stat-box"><div class="sv">${bestStreak}</div><div class="sl">Best Streak</div></div>
-      <div class="stat-box"><div class="sv">${ats.firsts}</div><div class="sl">1. Raus</div></div>
-      <div class="stat-box"><div class="sv">${ats.finalist}</div><div class="sl">Finals</div></div>
-    </div>`;
-
-  // Draw sparkline chart
-  setTimeout(() => {
-    const cv = document.getElementById('profile-chart'); if(!cv)return;
-    const cctx=cv.getContext('2d'); cv.width=cv.parentElement.offsetWidth; cv.height=110;
-    if(!gains.length){cctx.fillStyle='rgba(255,255,255,0.1)';cctx.font='14px Outfit';cctx.textAlign='center';cctx.fillText('Noch keine Runden',cv.width/2,55);return;}
-    const max=Math.max(...gains.map(Math.abs),1);
-    const w=cv.width,h=cv.height,pad=10,bw=Math.max(12,(w-pad*2)/gains.length-4);
-    gains.forEach((g,i)=>{
-      const bh=Math.max(4,Math.abs(g)/max*(h-pad*2));
-      const x=pad+i*((w-pad*2)/gains.length);
-      const y=g>=0?h/2-bh:h/2;
-      cctx.fillStyle=g>=0?'rgba(80,200,120,0.8)':'rgba(255,100,100,0.8)';
-      const r=4;const by=g>=0?h/2-bh:h/2;
-      cctx.beginPath();cctx.roundRect(x,by,bw,bh,r);cctx.fill();
-    });
-    cctx.beginPath();cctx.moveTo(0,h/2);cctx.lineTo(w,h/2);cctx.strokeStyle='rgba(255,255,255,0.12)';cctx.stroke();
-  },50);
-}
-
-/* ── NAVIGATION ── */
+    /* ── AVATARS ── */
     .avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #000; flex-shrink: 0; }
     .av-40 { width: 40px; height: 40px; font-size: 14px; } .av-32 { width: 32px; height: 32px; font-size: 12px; } .av-28 { width: 28px; height: 28px; font-size: 11px; }
     .ac-0 { background: linear-gradient(135deg,#fbbf24,#d97706); } .ac-1 { background: linear-gradient(135deg,#60a5fa,#3b82f6); } .ac-2 { background: linear-gradient(135deg,#34d399,#10b981); }
@@ -1039,6 +868,179 @@ function player(id) { return db.players.find(p => p.id === id); }
 function season(id) { return db.seasons.find(s => s.id === id); }
 function activeSeason() { return db.seasons.find(s => s.active) || db.seasons[db.seasons.length-1]; }
 function activeSeasonId() { return activeSeason()?.id || null; }
+
+function computeStreaks(allSessions) {
+  // Returns { currentStreak: {pid: N}, bestStreak: {pid: N} }
+  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
+  const cur = {}, best = {};
+  db.players.forEach(p => { cur[p.id] = 0; best[p.id] = 0; });
+  for (const s of sorted) {
+    if (!s.winner) continue;
+    for (const pid of s.participants) {
+      if (pid === s.winner) { cur[pid] = (cur[pid]||0) + 1; if (cur[pid] > (best[pid]||0)) best[pid] = cur[pid]; }
+      else { cur[pid] = 0; }
+    }
+  }
+  return { cur, best };
+}
+
+function computeElo(allSessions) {
+  const elo = {};
+  db.players.forEach(p => elo[p.id] = 1000);
+  const K = 32;
+  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
+  for (const s of sorted) {
+    if (!s.winner || !s.participants?.length) continue;
+    const n = s.participants.length;
+    const avgEnemyElo = s.participants.filter(id=>id!==s.winner).reduce((sum,id)=>(sum+(elo[id]||1000)),0) / Math.max(n-1,1);
+    const expected = 1 / (1 + Math.pow(10, (avgEnemyElo - (elo[s.winner]||1000)) / 400));
+    elo[s.winner] = Math.round((elo[s.winner]||1000) + K * (1-expected));
+    s.participants.filter(id=>id!==s.winner).forEach(id => {
+      if (id === s.firstOut) elo[id] = Math.round((elo[id]||1000) + K * (0 - (1-expected)));
+      else elo[id] = Math.round((elo[id]||1000) + K * (0.3 - (1-expected)));
+    });
+  }
+  return elo;
+}
+
+/* ── CONFETTI ── */
+function launchConfetti() {
+  const canvas = document.getElementById('confetti-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  const pieces = Array.from({length:120}, () => ({
+    x: Math.random()*canvas.width, y: -10, w: Math.random()*10+5, h: Math.random()*6+4,
+    col: `hsl(${Math.random()*360},80%,60%)`, r: Math.random()*6-3,
+    vy: Math.random()*4+3, vx: Math.random()*4-2, rot: Math.random()*360
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    pieces.forEach(p => {
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.col; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+      p.x+=p.vx; p.y+=p.vy; p.rot+=p.r; p.vy+=0.08;
+    });
+    if(++frame < 90) requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  draw();
+}
+
+/* ── H2H RENDER ── */
+function renderH2H() {
+  const p1id = document.getElementById('h2h-p1')?.value;
+  const p2id = document.getElementById('h2h-p2')?.value;
+  const res = document.getElementById('h2h-result');
+  if (!res) return;
+  if (!p1id || !p2id || p1id === p2id) { res.innerHTML = '<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Bitte zwei verschiedene Spieler wählen.</div>'; return; }
+  const p1 = player(p1id), p2 = player(p2id);
+  const fSess = filteredSessions().filter(s => s.participants.includes(p1id) && s.participants.includes(p2id));
+  if (!fSess.length) { res.innerHTML = `<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">${p1.name} und ${p2.name} haben noch keine gemeinsame Runde.</div>`; return; }
+  const w1=fSess.filter(s=>s.winner===p1id).length, w2=fSess.filter(s=>s.winner===p2id).length;
+  const fo1=fSess.filter(s=>s.firstOut===p1id).length, fo2=fSess.filter(s=>s.firstOut===p2id).length;
+  const bal1=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p1id?s.stake*(n-1):-s.stake); },0);
+  const bal2=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p2id?s.stake*(n-1):-s.stake); },0);
+  const total = w1+w2; const pct1 = total>0?Math.round(w1/total*100):50;
+  res.innerHTML=`
+    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;">${fSess.length} gemeinsame Runden</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+      <span style="font-weight:800">${p1.name}</span><span style="font-weight:800">${p2.name}</span></div>
+    <div class="h2h-bar"><div class="h2h-a" style="width:${pct1}%">${pct1>15?w1+' Siege':''}</div><div class="h2h-b">${w2} Siege</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo1}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo2}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal1>0?'pos':bal1<0?'neg':'zer'}">${fmtMoney(bal1)}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal2>0?'pos':bal2<0?'neg':'zer'}">${fmtMoney(bal2)}</div></div>
+    </div>`;
+}
+
+/* ── PLAYER PROFILE ── */
+function openProfile(pid) {
+  currentView = 'player-profile';
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-player-profile').classList.add('active');
+  window.scrollTo(0,0);
+  renderProfile(pid);
+}
+function renderProfile(pid) {
+  const p = player(pid);
+  if (!p) return;
+  const fSess = filteredSessions();
+  const ats = allTimeStats(pid);
+  const fs = stats(pid, fSess);
+  const badgesData = calculateBadges(fSess, db.players.filter(x=>stats(x.id,fSess).games>0));
+  const allStreaks = computeStreaks(db.sessions);
+  const eloMap = computeElo(db.sessions);
+  const curStreak = allStreaks.cur[pid]||0;
+  const bestStreak = allStreaks.best[pid]||0;
+  const eloPts = eloMap[pid]||1000;
+  const badgesHtml = getPlayerBadgesHTML(pid, badgesData, fSess);
+  
+  // Formkurve (letzte 10 Sessions)
+  const mySess = [...fSess.filter(s=>s.participants.includes(pid))].sort((a,b)=>a.date.localeCompare(b.date)).slice(-10);
+  const gains = mySess.map(s=>s.winner===pid ? s.stake*(s.participants.length-1) : -s.stake);
+
+  // Erzfeind
+  let lostTo={}, nemStr='';
+  for (const s of fSess) { if(s.participants.includes(pid)&&s.winner&&s.winner!==pid) lostTo[s.winner]=(lostTo[s.winner]||0)+1; }
+  let nemId=null,maxL=0;
+  for(const[id,cnt] of Object.entries(lostTo)){if(cnt>maxL){maxL=cnt;nemId=id;}}
+  if(nemId&&maxL>=2){const nem=player(nemId);nemStr=`<div style="margin-top:8px;font-size:13px;color:var(--text-muted)">😈 Erzfeind: <strong>${nem.name}</strong> (${maxL}x verloren)</div>`;}
+
+  const avCls = avatarClass(pid);
+  const avInner = p.emoji ? p.emoji : initials(p.name);
+  const avHasEmoji = p.emoji ? 'has-emoji' : '';
+
+  document.getElementById('profile-wrap').innerHTML=`
+    <button class="btn btn-ghost btn-sm mb-12" onclick="navigate('stats')">← Zurück</button>
+    <div class="profile-hero">
+      <div class="profile-av ${avCls} ${avHasEmoji}">${avInner}</div>
+      <div class="profile-name">${p.name}</div>
+      ${curStreak>=2?`<div class="profile-title">${'🔥'.repeat(Math.min(curStreak,5))} ${curStreak}er Siegesserie!</div>`:'<div class="profile-title">Schnauz-Spieler</div>'}
+      <div class="profile-badges">${badgesHtml||'<span style="font-size:13px;color:var(--text-dim)">Noch keine Badges</span>'}</div>
+      ${nemStr}
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="sv">${fs.games}</div><div class="sl">Spiele</div></div>
+      <div class="stat-box"><div class="sv">${fs.wins}</div><div class="sl">Siege</div></div>
+      <div class="stat-box"><div class="sv ${fs.bal>0?'pos':fs.bal<0?'neg':'zer'}">${fmtMoney(fs.bal)}</div><div class="sl">Bilanz</div></div>
+      <div class="stat-box"><div class="sv">${fs.winRate}%</div><div class="sl">Siegrate</div></div>
+      <div class="stat-box"><div class="sv">${fs.flawlessWins}</div><div class="sl">Clean Sheets</div></div>
+      <div class="stat-box"><div class="sv" style="color:var(--accent);">${eloPts}</div><div class="sl">Elo</div></div>
+    </div>
+    <div class="sec-head mb-8"><span class="sec-title">📊 Formkurve (letzte 10)</span></div>
+    <div class="det-cell mb-16">
+      <canvas id="profile-chart" height="110"></canvas>
+    </div>
+    <div class="sec-head mb-8"><span class="sec-title">🎙️ All-Time Stats</span></div>
+    <div class="stat-grid" style="margin-bottom:18px">
+      <div class="stat-box"><div class="sv">${ats.games}</div><div class="sl">Gesamt</div></div>
+      <div class="stat-box"><div class="sv">${ats.wins}</div><div class="sl">Siege</div></div>
+      <div class="stat-box"><div class="sv ${ats.bal>0?'pos':ats.bal<0?'neg':'zer'}">${fmtMoney(ats.bal)}</div><div class="sl">Bilanz</div></div>
+      <div class="stat-box"><div class="sv">${bestStreak}</div><div class="sl">Best Streak</div></div>
+      <div class="stat-box"><div class="sv">${ats.firsts}</div><div class="sl">1. Raus</div></div>
+      <div class="stat-box"><div class="sv">${ats.finalist}</div><div class="sl">Finals</div></div>
+    </div>`;
+
+  // Draw sparkline chart
+  setTimeout(() => {
+    const cv = document.getElementById('profile-chart'); if(!cv)return;
+    const cctx=cv.getContext('2d'); cv.width=cv.parentElement.offsetWidth; cv.height=110;
+    if(!gains.length){cctx.fillStyle='rgba(255,255,255,0.1)';cctx.font='14px Outfit';cctx.textAlign='center';cctx.fillText('Noch keine Runden',cv.width/2,55);return;}
+    const max=Math.max(...gains.map(Math.abs),1);
+    const w=cv.width,h=cv.height,pad=10,bw=Math.max(12,(w-pad*2)/gains.length-4);
+    gains.forEach((g,i)=>{
+      const bh=Math.max(4,Math.abs(g)/max*(h-pad*2));
+      const x=pad+i*((w-pad*2)/gains.length);
+      const y=g>=0?h/2-bh:h/2;
+      cctx.fillStyle=g>=0?'rgba(80,200,120,0.8)':'rgba(255,100,100,0.8)';
+      const r=4;const by=g>=0?h/2-bh:h/2;
+      cctx.beginPath();cctx.roundRect(x,by,bw,bh,r);cctx.fill();
+    });
+    cctx.beginPath();cctx.moveTo(0,h/2);cctx.lineTo(w,h/2);cctx.strokeStyle='rgba(255,255,255,0.12)';cctx.stroke();
+  },50);
+}
 
 /* ── THEME ── */
 const PLAYER_EMOJIS = ['🦊','🦈','🐋','🦄','🦅','🐯','🦝','🦖','🐬','🐢','🦓','🦛','🧀','🍑','🍒','🍇','🥷','👑','💥','💡','🔥','⚡','🌚','🌞'];
