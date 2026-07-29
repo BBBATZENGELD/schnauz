@@ -34,6 +34,38 @@
       --r-sm: 12px; --r: 16px; --r-lg: 20px; --r-xl: 28px;
       --shadow: 0 8px 30px rgba(0,0,0,0.6);
     }
+    /* ── THEME: Las Vegas Neon ── */
+    [data-theme="neon"] {
+      --bg: radial-gradient(circle at top, #1a0a2e, #06020e);
+      --bg-color: #0d0618;
+      --surface: rgba(255,255,255,0.04); --card: rgba(255,255,255,0.07); --card-hover: rgba(255,255,255,0.12);
+      --border: rgba(255,255,255,0.07); --border-light: rgba(255,255,255,0.15);
+      --accent: #f72585; --accent-dark: #c91d6e; --accent-darker: #a1175a;
+      --accent-light: #ff9de2; --accent-glow: rgba(247,37,133,0.2);
+      --accent-glow-strong: rgba(247,37,133,0.4);
+      --text: #f0e6ff; --text-muted: #b89fcf; --text-dim: #7a5f9a;
+      --success: #7effc0; --success-bg: rgba(126,255,192,0.12);
+      --danger: #ff6b6b; --danger-bg: rgba(255,107,107,0.15);
+      --info: #4cc9f0; --info-bg: rgba(76,201,240,0.10);
+    }
+    /* ── THEME: Bright Day ── */
+    [data-theme="light"] {
+      --bg: linear-gradient(160deg, #f0f4f8, #dde8f0);
+      --bg-color: #f0f4f8;
+      --surface: rgba(0,0,0,0.04); --card: rgba(255,255,255,0.85); --card-hover: rgba(255,255,255,1);
+      --border: rgba(0,0,0,0.07); --border-light: rgba(0,0,0,0.13);
+      --accent: #2563eb; --accent-dark: #1d4ed8; --accent-darker: #1e40af;
+      --accent-light: #93c5fd; --accent-glow: rgba(37,99,235,0.15);
+      --accent-glow-strong: rgba(37,99,235,0.3);
+      --text: #1e293b; --text-muted: #475569; --text-dim: #94a3b8;
+      --success: #16a34a; --success-bg: rgba(22,163,74,0.12);
+      --danger: #dc2626; --danger-bg: rgba(220,38,38,0.12);
+      --info: #0284c7; --info-bg: rgba(2,132,199,0.10);
+      --shadow: 0 8px 30px rgba(0,0,0,0.15);
+    }
+    [data-theme="light"] body { background-attachment: fixed; }
+    [data-theme="light"] #app-header { background: rgba(240,244,248,0.92); }
+    [data-theme="light"] #bottom-nav { background: rgba(240,244,248,0.97); }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body { font-family: 'Outfit', system-ui, sans-serif; background-color: var(--bg-color); background-image: var(--bg); background-attachment: fixed; color: var(--text); min-height: 100dvh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
@@ -148,13 +180,184 @@
     .b-success { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
     .b-danger  { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
     .b-info    { background: var(--info-bg); color: var(--info); border: 1px solid rgba(96,165,250,0.3); }
-    .b-muted   { background: rgba(255,255,255,0.04); color: var(--text-muted); border: 1px solid var(--border); }
-
-    /* ── SECTION HEADER ── */
+/* ── SECTION HEADER ── */
     .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .sec-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); }
 
-    /* ── AVATARS ── */
+    function computeStreaks(allSessions) {
+  // Returns { currentStreak: {pid: N}, bestStreak: {pid: N} }
+  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
+  const cur = {}, best = {};
+  db.players.forEach(p => { cur[p.id] = 0; best[p.id] = 0; });
+  for (const s of sorted) {
+    if (!s.winner) continue;
+    for (const pid of s.participants) {
+      if (pid === s.winner) { cur[pid] = (cur[pid]||0) + 1; if (cur[pid] > (best[pid]||0)) best[pid] = cur[pid]; }
+      else { cur[pid] = 0; }
+    }
+  }
+  return { cur, best };
+}
+
+function computeElo(allSessions) {
+  const elo = {};
+  db.players.forEach(p => elo[p.id] = 1000);
+  const K = 32;
+  const sorted = [...allSessions].sort((a,b) => a.date.localeCompare(b.date));
+  for (const s of sorted) {
+    if (!s.winner || !s.participants?.length) continue;
+    const n = s.participants.length;
+    const avgEnemyElo = s.participants.filter(id=>id!==s.winner).reduce((sum,id)=>(sum+(elo[id]||1000)),0) / Math.max(n-1,1);
+    const expected = 1 / (1 + Math.pow(10, (avgEnemyElo - (elo[s.winner]||1000)) / 400));
+    elo[s.winner] = Math.round((elo[s.winner]||1000) + K * (1-expected));
+    s.participants.filter(id=>id!==s.winner).forEach(id => {
+      if (id === s.firstOut) elo[id] = Math.round((elo[id]||1000) + K * (0 - (1-expected)));
+      else elo[id] = Math.round((elo[id]||1000) + K * (0.3 - (1-expected)));
+    });
+  }
+  return elo;
+}
+
+/* ── CONFETTI ── */
+function launchConfetti() {
+  const canvas = document.getElementById('confetti-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  const pieces = Array.from({length:120}, () => ({
+    x: Math.random()*canvas.width, y: -10, w: Math.random()*10+5, h: Math.random()*6+4,
+    col: `hsl(${Math.random()*360},80%,60%)`, r: Math.random()*6-3,
+    vy: Math.random()*4+3, vx: Math.random()*4-2, rot: Math.random()*360
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    pieces.forEach(p => {
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.col; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+      p.x+=p.vx; p.y+=p.vy; p.rot+=p.r; p.vy+=0.08;
+    });
+    if(++frame < 90) requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  draw();
+}
+
+/* ── H2H RENDER ── */
+function renderH2H() {
+  const p1id = document.getElementById('h2h-p1')?.value;
+  const p2id = document.getElementById('h2h-p2')?.value;
+  const res = document.getElementById('h2h-result');
+  if (!res) return;
+  if (!p1id || !p2id || p1id === p2id) { res.innerHTML = '<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Bitte zwei verschiedene Spieler wählen.</div>'; return; }
+  const p1 = player(p1id), p2 = player(p2id);
+  const fSess = filteredSessions().filter(s => s.participants.includes(p1id) && s.participants.includes(p2id));
+  if (!fSess.length) { res.innerHTML = `<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">${p1.name} und ${p2.name} haben noch keine gemeinsame Runde.</div>`; return; }
+  const w1=fSess.filter(s=>s.winner===p1id).length, w2=fSess.filter(s=>s.winner===p2id).length;
+  const fo1=fSess.filter(s=>s.firstOut===p1id).length, fo2=fSess.filter(s=>s.firstOut===p2id).length;
+  const bal1=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p1id?s.stake*(n-1):-s.stake); },0);
+  const bal2=fSess.reduce((t,s)=>{ const n=s.participants.length; return t+(s.winner===p2id?s.stake*(n-1):-s.stake); },0);
+  const total = w1+w2; const pct1 = total>0?Math.round(w1/total*100):50;
+  res.innerHTML=`
+    <div style="font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:8px;">${fSess.length} gemeinsame Runden</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+      <span style="font-weight:800">${p1.name}</span><span style="font-weight:800">${p2.name}</span></div>
+    <div class="h2h-bar"><div class="h2h-a" style="width:${pct1}%">${pct1>15?w1+' Siege':''}</div><div class="h2h-b">${w2} Siege</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo1}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">1. Raus</div><div class="det-val" style="color:var(--danger)">${fo2}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal1>0?'pos':bal1<0?'neg':'zer'}">${fmtMoney(bal1)}</div></div>
+      <div class="det-cell" style="text-align:center"><div class="det-lbl">Bilanz</div><div class="det-val ${bal2>0?'pos':bal2<0?'neg':'zer'}">${fmtMoney(bal2)}</div></div>
+    </div>`;
+}
+
+/* ── PLAYER PROFILE ── */
+function openProfile(pid) {
+  currentView = 'player-profile';
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-player-profile').classList.add('active');
+  window.scrollTo(0,0);
+  renderProfile(pid);
+}
+function renderProfile(pid) {
+  const p = player(pid);
+  if (!p) return;
+  const fSess = filteredSessions();
+  const ats = allTimeStats(pid);
+  const fs = stats(pid, fSess);
+  const badgesData = calculateBadges(fSess, db.players.filter(x=>stats(x.id,fSess).games>0));
+  const allStreaks = computeStreaks(db.sessions);
+  const eloMap = computeElo(db.sessions);
+  const curStreak = allStreaks.cur[pid]||0;
+  const bestStreak = allStreaks.best[pid]||0;
+  const eloPts = eloMap[pid]||1000;
+  const badgesHtml = getPlayerBadgesHTML(pid, badgesData, fSess);
+  
+  // Formkurve (letzte 10 Sessions)
+  const mySess = [...fSess.filter(s=>s.participants.includes(pid))].sort((a,b)=>a.date.localeCompare(b.date)).slice(-10);
+  const gains = mySess.map(s=>s.winner===pid ? s.stake*(s.participants.length-1) : -s.stake);
+
+  // Erzfeind
+  let lostTo={}, nemStr='';
+  for (const s of fSess) { if(s.participants.includes(pid)&&s.winner&&s.winner!==pid) lostTo[s.winner]=(lostTo[s.winner]||0)+1; }
+  let nemId=null,maxL=0;
+  for(const[id,cnt] of Object.entries(lostTo)){if(cnt>maxL){maxL=cnt;nemId=id;}}
+  if(nemId&&maxL>=2){const nem=player(nemId);nemStr=`<div style="margin-top:8px;font-size:13px;color:var(--text-muted)">😈 Erzfeind: <strong>${nem.name}</strong> (${maxL}x verloren)</div>`;}
+
+  const avCls = avatarClass(pid);
+  const avInner = p.emoji ? p.emoji : initials(p.name);
+  const avHasEmoji = p.emoji ? 'has-emoji' : '';
+
+  document.getElementById('profile-wrap').innerHTML=`
+    <button class="btn btn-ghost btn-sm mb-12" onclick="navigate('stats')">← Zurück</button>
+    <div class="profile-hero">
+      <div class="profile-av ${avCls} ${avHasEmoji}">${avInner}</div>
+      <div class="profile-name">${p.name}</div>
+      ${curStreak>=2?`<div class="profile-title">${'\ud83d\udd25'.repeat(Math.min(curStreak,5))} ${curStreak}er Siegesserie!</div>`:'<div class="profile-title">Schnauz-Spieler</div>'}
+      <div class="profile-badges">${badgesHtml||'<span style="font-size:13px;color:var(--text-dim)">Noch keine Badges</span>'}</div>
+      ${nemStr}
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="sv">${fs.games}</div><div class="sl">Spiele</div></div>
+      <div class="stat-box"><div class="sv">${fs.wins}</div><div class="sl">Siege</div></div>
+      <div class="stat-box"><div class="sv ${fs.bal>0?'pos':fs.bal<0?'neg':'zer'}">${fmtMoney(fs.bal)}</div><div class="sl">Bilanz</div></div>
+      <div class="stat-box"><div class="sv">${fs.winRate}%</div><div class="sl">Siegrate</div></div>
+      <div class="stat-box"><div class="sv">${fs.flawlessWins}</div><div class="sl">Clean Sheets</div></div>
+      <div class="stat-box"><div class="sv" style="color:var(--accent);">${eloPts}</div><div class="sl">Elo</div></div>
+    </div>
+    <div class="sec-head mb-8"><span class="sec-title">📊 Formkurve (letzte 10)</span></div>
+    <div class="det-cell mb-16">
+      <canvas id="profile-chart" height="110"></canvas>
+    </div>
+    <div class="sec-head mb-8"><span class="sec-title">🎙️ All-Time Stats</span></div>
+    <div class="stat-grid" style="margin-bottom:18px">
+      <div class="stat-box"><div class="sv">${ats.games}</div><div class="sl">Gesamt</div></div>
+      <div class="stat-box"><div class="sv">${ats.wins}</div><div class="sl">Siege</div></div>
+      <div class="stat-box"><div class="sv ${ats.bal>0?'pos':ats.bal<0?'neg':'zer'}">${fmtMoney(ats.bal)}</div><div class="sl">Bilanz</div></div>
+      <div class="stat-box"><div class="sv">${bestStreak}</div><div class="sl">Best Streak</div></div>
+      <div class="stat-box"><div class="sv">${ats.firsts}</div><div class="sl">1. Raus</div></div>
+      <div class="stat-box"><div class="sv">${ats.finalist}</div><div class="sl">Finals</div></div>
+    </div>`;
+
+  // Draw sparkline chart
+  setTimeout(() => {
+    const cv = document.getElementById('profile-chart'); if(!cv)return;
+    const cctx=cv.getContext('2d'); cv.width=cv.parentElement.offsetWidth; cv.height=110;
+    if(!gains.length){cctx.fillStyle='rgba(255,255,255,0.1)';cctx.font='14px Outfit';cctx.textAlign='center';cctx.fillText('Noch keine Runden',cv.width/2,55);return;}
+    const max=Math.max(...gains.map(Math.abs),1);
+    const w=cv.width,h=cv.height,pad=10,bw=Math.max(12,(w-pad*2)/gains.length-4);
+    gains.forEach((g,i)=>{
+      const bh=Math.max(4,Math.abs(g)/max*(h-pad*2));
+      const x=pad+i*((w-pad*2)/gains.length);
+      const y=g>=0?h/2-bh:h/2;
+      cctx.fillStyle=g>=0?'rgba(80,200,120,0.8)':'rgba(255,100,100,0.8)';
+      const r=4;const by=g>=0?h/2-bh:h/2;
+      cctx.beginPath();cctx.roundRect(x,by,bw,bh,r);cctx.fill();
+    });
+    cctx.beginPath();cctx.moveTo(0,h/2);cctx.lineTo(w,h/2);cctx.strokeStyle='rgba(255,255,255,0.12)';cctx.stroke();
+  },50);
+}
+
+/* ── NAVIGATION ── */
     .avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #000; flex-shrink: 0; }
     .av-40 { width: 40px; height: 40px; font-size: 14px; } .av-32 { width: 32px; height: 32px; font-size: 12px; } .av-28 { width: 28px; height: 28px; font-size: 11px; }
     .ac-0 { background: linear-gradient(135deg,#fbbf24,#d97706); } .ac-1 { background: linear-gradient(135deg,#60a5fa,#3b82f6); } .ac-2 { background: linear-gradient(135deg,#34d399,#10b981); }
@@ -304,6 +507,47 @@
     .divider { height: 1px; background: var(--border); margin: 16px 0; }
     .page-title { font-size: 23px; font-weight: 800; margin-bottom: 3px; }
     .page-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+
+    /* ── STREAK / ON FIRE ── */
+    .streak-fire { display:inline-block; animation: fireFlicker 0.8s ease-in-out infinite alternate; }
+    @keyframes fireFlicker { 0% { transform: scale(1) rotate(-4deg); } 100% { transform: scale(1.15) rotate(4deg); } }
+    
+    /* ── THEME SWITCHER ── */
+    .theme-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:10px; margin-top:8px; }
+    .theme-btn { border:2px solid var(--border); border-radius:var(--r); padding:14px 8px; background:var(--surface); cursor:pointer; text-align:center; transition:all .2s; }
+    .theme-btn:hover { border-color:var(--border-light); }
+    .theme-btn.on { border-color:var(--accent); background:var(--accent-glow); }
+    .theme-btn .theme-ico { font-size:28px; margin-bottom:6px; }
+    .theme-btn .theme-nm { font-size:11px; font-weight:700; color:var(--text-muted); }
+
+    /* ── EMOJI PICKER ── */
+    .emoji-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-top:10px; }
+    .emoji-opt { font-size:24px; border:2px solid var(--border); border-radius:var(--r-sm); padding:8px 4px; background:var(--surface); cursor:pointer; text-align:center; transition:all .2s; }
+    .emoji-opt:hover { border-color:var(--border-light); background:var(--card); transform:scale(1.1); }
+    .emoji-opt.on { border-color:var(--accent); background:var(--accent-glow); }
+    .avatar.has-emoji { font-size: 18px; }
+    .av-32.has-emoji { font-size: 16px; }
+    .av-28.has-emoji { font-size: 14px; }
+
+    /* ── PLAYER PROFILE ── */
+    .profile-hero { background:var(--card); border:1px solid var(--border); border-radius:var(--r-xl); padding:24px; margin-bottom:18px; text-align:center; position:relative; overflow:hidden; }
+    .profile-hero::before { content:''; position:absolute; inset:0; background:var(--accent-glow); opacity:.5; pointer-events:none; }
+    .profile-av { width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:900; margin:0 auto 12px; border:3px solid var(--accent); box-shadow:0 0 24px var(--accent-glow-strong); }
+    .profile-name { font-size:22px; font-weight:800; }
+    .profile-title { font-size:12px; color:var(--text-muted); margin-top:4px; }
+    .profile-badges { margin-top:10px; display:flex; justify-content:center; flex-wrap:wrap; gap:4px; font-size:22px; }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:18px; }
+    .stat-box { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:12px 8px; text-align:center; }
+    .stat-box .sv { font-size:20px; font-weight:800; } .stat-box .sl { font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.8px; margin-top:2px; }
+    .form-chart { width:100%; height:120px; position:relative; }
+
+    /* ── H2H ── */
+    .h2h-bar { display:flex; height:24px; border-radius:12px; overflow:hidden; margin:10px 0 4px; }
+    .h2h-a { background:var(--accent); transition:width .6s; display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#000; }
+    .h2h-b { background:var(--info); flex:1; display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:800; }
+
+    /* ── CONFETTI CANVAS ── */
+    #confetti-canvas { position:fixed; inset:0; pointer-events:none; z-index:9999; }
   </style>
 </head>
 <body>
@@ -313,13 +557,14 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.1.1</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.2.0</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
     </div>
   </header>
 
+  <canvas id="confetti-canvas"></canvas>
   <div id="toasts"></div>
 
   <main id="main-content">
@@ -395,8 +640,19 @@
         </div>
 
         <div class="sec-head mb-8 mt-16"><span class="sec-title">🏅 Saison-Awards</span></div>
-        <div class="det-cell" style="margin-bottom:32px;">
+        <div class="det-cell" style="margin-bottom:16px;">
            <div id="stats-awards" style="display:flex;flex-direction:column;gap:16px;"></div>
+        </div>
+
+        <div class="sec-head mb-8 mt-16"><span class="sec-title">⚔️ Head-to-Head</span></div>
+        <div class="det-cell" style="margin-bottom:32px;">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Direktvergleich in allen gemeinsamen Runden.</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <select id="h2h-p1" class="form-input" style="flex:1" onchange="renderH2H()"></select>
+            <div style="display:flex;align-items:center;font-weight:800;color:var(--text-dim);padding:0 4px;">vs</div>
+            <select id="h2h-p2" class="form-input" style="flex:1" onchange="renderH2H()"></select>
+          </div>
+          <div id="h2h-result"></div>
         </div>
       </div>
     </div>
@@ -413,6 +669,7 @@
           <button class="sub-tab active" id="stab-pl" onclick="showSubTab('players')">👥 Spieler</button>
           <button class="sub-tab"        id="stab-sn" onclick="showSubTab('seasons')">🏆 Saisons</button>
           <button class="sub-tab"        id="stab-sec" onclick="showSubTab('security')">🔒 Sicherheit</button>
+          <button class="sub-tab"        id="stab-th" onclick="showSubTab('theme')">🎨 Design</button>
         </div>
         <div id="sub-pl-cont"><div class="pl-list" id="pl-list"></div></div>
         <div id="sub-sn-cont" style="display:none">
@@ -433,7 +690,32 @@
             <div id="pin-status-msg" style="font-size:12px;color:var(--text-dim);margin-top:8px;"></div>
           </div>
         </div>
+        <div id="sub-th-cont" style="display:none">
+          <div class="det-cell" style="margin-top:8px;">
+            <div class="det-lbl">App-Design wählen</div>
+            <div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Das Theme wird nur auf diesem Gerät gespeichert.</div>
+            <div class="theme-grid">
+              <div class="theme-btn" id="th-btn-classic" onclick="applyTheme('classic')">
+                <div class="theme-ico">🎰</div>
+                <div class="theme-nm">Casino Club</div>
+              </div>
+              <div class="theme-btn" id="th-btn-neon" onclick="applyTheme('neon')">
+                <div class="theme-ico">💜</div>
+                <div class="theme-nm">Las Vegas Neon</div>
+              </div>
+              <div class="theme-btn" id="th-btn-light" onclick="applyTheme('light')">
+                <div class="theme-ico">☀️</div>
+                <div class="theme-nm">Bright Day</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <!-- PLAYER PROFILE -->
+    <div class="view" id="view-player-profile">
+      <div class="content-wrap" id="profile-wrap"></div>
     </div>
 
   </main>
@@ -457,9 +739,28 @@
       <label class="form-label" for="inp-pname">Name</label>
       <input class="form-input" type="text" id="inp-pname" placeholder="z.B. Max Müller" maxlength="30" autocomplete="off">
     </div>
+    <div class="form-group">
+      <label class="form-label">Avatar-Emoji (optional)</label>
+      <div class="emoji-grid" id="add-player-emoji-grid"></div>
+    </div>
     <div class="row gap-10">
       <button class="btn btn-secondary flex-1" onclick="closeModal('modal-add-player')">Abbrechen</button>
       <button class="btn btn-primary flex-1" onclick="submitPlayer()">Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: EDIT PLAYER EMOJI -->
+<div class="modal-wrap" id="modal-edit-emoji">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="emoji-edit-title">Avatar wählen</div>
+    <div class="modal-sub">Wähle ein Emoji als Profilbild</div>
+    <div class="emoji-grid" id="emoji-edit-grid"></div>
+    <input type="hidden" id="emoji-edit-pid">
+    <div class="row gap-10 mt-16">
+      <button class="btn btn-secondary flex-1" onclick="closeModal('modal-edit-emoji')">Abbrechen</button>
+      <button class="btn btn-primary flex-1" onclick="submitEmojiEdit()">Speichern</button>
     </div>
   </div>
 </div>
@@ -739,6 +1040,22 @@ function season(id) { return db.seasons.find(s => s.id === id); }
 function activeSeason() { return db.seasons.find(s => s.active) || db.seasons[db.seasons.length-1]; }
 function activeSeasonId() { return activeSeason()?.id || null; }
 
+/* ── THEME ── */
+const PLAYER_EMOJIS = ['🦊','🦈','🐋','🦄','🦅','🐯','🦝','🦖','🐬','🐢','🦓','🦛','🧀','🍑','🍒','🍇','🥷','👑','💥','💡','🔥','⚡','🌚','🌞'];
+let selectedAddEmoji = null;
+
+function applyTheme(t) {
+  document.documentElement.dataset.theme = (t === 'classic') ? '' : t;
+  localStorage.setItem('schnauz_theme', t);
+  ['classic','neon','light'].forEach(k => document.getElementById(`th-btn-${k}`)?.classList.toggle('on', k===t));
+  toast('🎨 Theme gespeichert!','ok');
+}
+function loadTheme() {
+  const t = localStorage.getItem('schnauz_theme') || 'classic';
+  document.documentElement.dataset.theme = (t === 'classic') ? '' : t;
+}
+
+/* ── AVATAR HELPERS ── */
 function initials(name) {
   if (!name) return '?';
   return name.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
@@ -746,6 +1063,46 @@ function initials(name) {
 function avatarClass(id) {
   const idx = db.players.findIndex(p => p.id === id);
   return `ac-${(idx<0?0:idx)%10}`;
+}
+function avatarHtml(pid, sizeClass='av-32') {
+  const p = player(pid);
+  if (!p) return `<div class="avatar ${sizeClass} ac-0">?</div>`;
+  if (p.emoji) return `<div class="avatar ${sizeClass} ${avatarClass(pid)} has-emoji">${p.emoji}</div>`;
+  return `<div class="avatar ${sizeClass} ${avatarClass(pid)}">${initials(p.name)}</div>`;
+}
+
+/* ── EMOJI PICKER ── */
+function renderEmojiGrid(containerId, selectedEmoji, onSelectFn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = PLAYER_EMOJIS.map(e =>
+    `<div class="emoji-opt ${e===selectedEmoji?'on':''}" onclick="(${onSelectFn.toString()})(this,'${e}')">${e}</div>`
+  ).join('');
+}
+function selectEmojiInGrid(el, emoji, containerId) {
+  el.closest('.emoji-grid').querySelectorAll('.emoji-opt').forEach(o => o.classList.remove('on'));
+  el.classList.add('on');
+}
+
+function openEmojiEdit(pid) {
+  const p = player(pid);
+  if (!p) return;
+  document.getElementById('emoji-edit-title').textContent = `${p.name} – Avatar`;
+  document.getElementById('emoji-edit-pid').value = pid;
+  const grid = document.getElementById('emoji-edit-grid');
+  grid.innerHTML = ['',...PLAYER_EMOJIS].map(e =>
+    `<div class="emoji-opt ${e===p.emoji?'on':''} ${e===''?'':''}" onclick="this.closest('.emoji-grid').querySelectorAll('.emoji-opt').forEach(x=>x.classList.remove('on'));this.classList.add('on');" data-val="${e}">${e||'❌'}</div>`
+  ).join('');
+  openModal('modal-edit-emoji');
+}
+function submitEmojiEdit() {
+  const pid = document.getElementById('emoji-edit-pid').value;
+  const p = player(pid);
+  if (!p) return;
+  const sel = document.querySelector('#emoji-edit-grid .emoji-opt.on');
+  p.emoji = sel ? (sel.dataset.val || null) : p.emoji;
+  save(); closeModal('modal-edit-emoji'); renderPlayersTab();
+  toast('✅ Avatar gespeichert!','ok');
 }
 function fmtMoney(cents, showPlus=true) {
   const eur = cents/100;
@@ -966,20 +1323,27 @@ function renderDash() {
   const badgesData = calculateBadges(fSess, withGamesBadge);
 
   const lbEl = document.getElementById('dash-lb');
+  const streaks = computeStreaks(db.sessions);
   if (!lb.length) {
     lbEl.innerHTML = emptyState('💰','Noch keine Daten','Trage deine erste Runde ein!');
   } else {
     const rnk = ['🥇','🥈','🥉'];
-    lbEl.innerHTML = lb.map(({p,s},i) => `
-      <div class="lb-item" onclick="navigate('stats')">
+    lbEl.innerHTML = lb.map(({p,s},i) => {
+      const cur = streaks.cur[p.id] || 0;
+      const streakHtml = cur >= 2 ? `<span class="streak-fire" style="font-size:14px" title="${cur}er Siegesserie!">${'🔥'.repeat(Math.min(cur,3))}</span>` : '';
+      const avInner = p.emoji ? p.emoji : initials(p.name);
+      const avExtra = p.emoji ? 'has-emoji' : '';
+      return `
+      <div class="lb-item" onclick="openProfile('${p.id}')">
         <div class="lb-rank">${rnk[i]||`#${i+1}`}</div>
-        <div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div>
+        <div class="avatar av-32 ${avatarClass(p.id)} ${avExtra}">${avInner}</div>
         <div class="lb-name">
-          <div class="lb-pname">${p.name}${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div>
+          <div class="lb-pname">${p.name} ${streakHtml}${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div>
           <div class="lb-psub">${s.wins} Siege · ${s.winRate}% Quote · ${s.games} Sp.</div>
         </div>
         <div class="lb-bal ${s.bal>0?'pos':s.bal<0?'neg':'zer'}">${fmtMoney(s.bal)}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   const recent = [...fSess].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
@@ -1105,7 +1469,7 @@ function submitSess() {
   if (!wiz.firstOut||wiz.finalists.length<2||!wiz.winner){toast('Bitte alle Felder ausfüllen','err');return;}
   const sess={id:wiz.editId||uid(),date:wiz.date,stake:wiz.stake,participants:[...wiz.participants],firstOut:wiz.firstOut,finalists:[...wiz.finalists],winner:wiz.winner,seasonId:wiz.seasonId||activeSeasonId(),flawless:wiz.flawless,ts:Date.now()};
   if(wiz.editId){const i=db.sessions.findIndex(s=>s.id===wiz.editId);if(i>=0)db.sessions[i]=sess;toast('✅ Runde aktualisiert!','ok');}
-  else{db.sessions.push(sess);toast('🎉 Runde gespeichert!','ok');}
+  else{db.sessions.push(sess);toast('🎉 Runde gespeichert!','ok');launchConfetti();}
   save();initWiz();navigate('dashboard');
 }
 
@@ -1130,14 +1494,32 @@ function calculateBadges(fSess, withGames) {
   let opfer = null, maxOpferRate = -1;
   let richest = null, brokest = null;
   let unantastbar = null, maxFlawless = 0;
+  let marathon = null, maxAttendance = -1;
+  let phantom = null; // last played longest ago
+  let seniority = null, maxStreak = 0; // record-holder
+  let geizkragen = null, maxGeiz = -1;
+  
+  const allStreaks = computeStreaks(db.sessions);
+  const now = todayStr();
   
   for (const p of withGames) {
     const s = stats(p.id, fSess);
     if (!richest || s.bal > stats(richest.id, fSess).bal) richest = p;
     if (!brokest || s.bal < stats(brokest.id, fSess).bal) brokest = p;
-
     if (s.flawlessWins > maxFlawless) { maxFlawless = s.flawlessWins; unantastbar = p; }
-
+    const finalRate = s.games > 0 ? (s.wins + s.finalist) / s.games : 0;
+    const attendance = s.games;
+    if (s.games >= 5) {
+      if (attendance > maxAttendance) { maxAttendance = attendance; marathon = p; }
+      if (s.winRate > maxWinrate) { maxWinrate = s.winRate; sniper = p; }
+      const opferRate = s.firsts / s.games;
+      if (opferRate > maxOpferRate) { maxOpferRate = opferRate; opfer = p; }
+      // Geizkragen: low firstOut AND low finalRate = middle-of-the-pack coward
+      const geizScore = (1 - opferRate) + (1 - finalRate); // high = never first out, never finalist either
+      if (geizScore > maxGeiz && s.winRate < 30) { maxGeiz = geizScore; geizkragen = p; }
+    }
+    const bst = allStreaks.best[p.id] || 0;
+    if (bst > maxStreak) { maxStreak = bst; seniority = p; }
     const finals = s.wins + s.finalist;
     if (finals >= 3) {
       const clutch = s.wins / finals;
@@ -1145,11 +1527,21 @@ function calculateBadges(fSess, withGames) {
       const pech = s.finalist / finals;
       if (pech > maxPech) { maxPech = pech; pechvogel = p; }
     }
-    if (s.games >= 5) {
-      if (s.winRate > maxWinrate) { maxWinrate = s.winRate; sniper = p; }
-      const opferRate = s.firsts / s.games;
-      if (opferRate > maxOpferRate) { maxOpferRate = opferRate; opfer = p; }
+  }
+
+  // Phantom: played at some point but hasn't played recently
+  let latestByPlayer = {};
+  for (const sess of db.sessions) {
+    for (const pid of sess.participants) {
+      if (!latestByPlayer[pid] || sess.date > latestByPlayer[pid]) latestByPlayer[pid] = sess.date;
     }
+  }
+  let maxDaysSince = 0;
+  for (const p of withGames) {
+    const last = latestByPlayer[p.id];
+    if (!last) continue;
+    const days = Math.floor((new Date(now) - new Date(last)) / 86400000);
+    if (days > maxDaysSince && days >= 14) { maxDaysSince = days; phantom = p; }
   }
 
   let nemesisMap = {};
@@ -1167,11 +1559,11 @@ function calculateBadges(fSess, withGames) {
     if (nemId && maxLoss >= 3) { nemesisMap[p.id] = player(nemId); }
   }
 
-  return { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless, nemesisMap };
+  return { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless, marathon, phantom, seniority, maxStreak, geizkragen, nemesisMap };
 }
 
 function getPlayerBadgesHTML(pId, badgesData, fSess) {
-  const { clutchKing, pechvogel, sniper, opfer, richest, brokest, unantastbar, nemesisMap } = badgesData;
+  const { clutchKing, pechvogel, sniper, opfer, richest, brokest, unantastbar, marathon, phantom, seniority, maxStreak, geizkragen, nemesisMap } = badgesData;
   const badges = [];
   const s = stats(pId, fSess);
   if (unantastbar && pId === unantastbar.id) badges.push('<span class="bdg" title="Unantastbar: Die meisten makellosen Siege (Clean Sheets)">🛡️</span>');
@@ -1181,6 +1573,10 @@ function getPlayerBadgesHTML(pId, badgesData, fSess) {
   if (opfer && pId === opfer.id) badges.push('<span class="bdg" title="Kanonenfutter: Höchste Erste-Raus-Rate">💀</span>');
   if (richest && pId === richest.id && s.bal > 0) badges.push('<span class="bdg" title="High Roller: Größter Profit">💰</span>');
   if (brokest && pId === brokest.id && s.bal < 0) badges.push('<span class="bdg" title="Sponsor: Höchster Verlust">💸</span>');
+  if (marathon && pId === marathon.id) badges.push('<span class="bdg" title="Marathon-Mann: Höchste Anwesenheit">🏃</span>');
+  if (phantom && pId === phantom.id) badges.push('<span class="bdg" title="Das Phantom: Schon länger abwesend">👻</span>');
+  if (seniority && pId === seniority.id && maxStreak >= 3) badges.push(`<span class="bdg" title="Legende: Rekord-Siegesserie von ${maxStreak} Siegen">🔥</span>`);
+  if (geizkragen && pId === geizkragen.id) badges.push('<span class="bdg" title="Geizkragen: Taucht auf, macht nichts Bes. und geht heim">🦀</span>');
   if (nemesisMap[pId]) badges.push(`<span class="bdg" title="Nemesis: Zieht am häufigsten gegen ${nemesisMap[pId].name} den Kürzeren">😈</span>`);
   return badges.join('');
 }
@@ -1202,7 +1598,10 @@ function renderStats() {
   const agg=getAggregateTotals();
   
   const badgesData = calculateBadges(fSess, withGames);
-  const { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless } = badgesData;
+  const { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless, marathon, phantom, seniority, maxStreak, geizkragen } = badgesData;
+
+  const eloMap = computeElo(db.sessions);
+  const streaks = computeStreaks(db.sessions);
 
   document.getElementById('stats-highlights').innerHTML=`
     <div class="hi-card"><div class="hi-ico">🏆</div><div class="hi-lbl">Meiste Siege</div><div class="hi-val">${sniper?sniper.name:'–'}</div><div class="hi-sub">${sniper?stats(sniper.id,fSess).wins+' Siege':''}</div></div>
@@ -1212,31 +1611,53 @@ function renderStats() {
 
   const rows=withGames.map(p=>({p,s:stats(p.id,fSess)})).sort((a,b)=>b.s.wins-a.s.wins);
   const tbody=document.getElementById('stats-tbody');
-  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; }
+  // Update table header to include Elo
+  document.querySelector('.tbl thead tr').innerHTML = '<th>Spieler</th><th>Spiele</th><th>Siege</th><th>Quote</th><th>1. Raus</th><th>Finals</th><th>Elo</th><th>Bilanz</th>';
+  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-dim)">Keine Daten für diese Auswahl</td></tr>`; }
   else {
-    tbody.innerHTML=rows.map(({p,s})=>`
-      <tr>
-        <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong>${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div></td>
-        <td>${s.games}</td><td><strong>${s.wins}</strong>${s.flawlessWins > 0 ? `<span style="font-size:10px;margin-left:4px;color:var(--accent)" title="${s.flawlessWins}x Ungeschlagen (Clean Sheet)">🛡️ ${s.flawlessWins}</span>`:''}</td>
+    tbody.innerHTML=rows.map(({p,s})=>{
+      const elo = eloMap[p.id] || 1000;
+      const cur = streaks.cur[p.id] || 0;
+      const streakHtml = cur >= 2 ? `<span class="streak-fire" style="font-size:11px" title="${cur}er Serie!">${'🔥'.repeat(Math.min(cur,3))}</span>` : '';
+      const avInner = p.emoji ? p.emoji : initials(p.name);
+      const avExtra = p.emoji ? 'has-emoji' : '';
+      return `
+      <tr onclick="openProfile('${p.id}')" style="cursor:pointer">
+        <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)} ${avExtra}">${avInner}</div><strong>${p.name}</strong>${streakHtml}${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div></td>
+        <td>${s.games}</td><td><strong>${s.wins}</strong>${s.flawlessWins > 0 ? `<span style="font-size:10px;margin-left:4px;color:var(--accent)" title="${s.flawlessWins}x Clean Sheet">🛡️ ${s.flawlessWins}</span>`:''}</td>
         <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
         <td style="color:var(--danger)">${s.firsts}</td>
         <td>${s.finalist}</td>
+        <td style="font-size:11px;color:var(--accent);font-weight:700">${elo}</td>
         <td class="${s.bal>0?'pos':s.bal<0?'neg':'zer'}" style="font-weight:800">${fmtMoney(s.bal)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }
 
   // Render Awards UI
   const awHtml = [];
   if (unantastbar) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🛡️</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${unantastbar.name} ist Unantastbar</div><div style="font-size:13px;color:var(--text-muted)">Meiste ungeschlagene Runden (${maxFlawless}x Clean Sheet). Ein absoluter Durchmarsch.</div></div></div>`);
+  if (seniority && maxStreak >= 3) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🔥</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${seniority.name} ist die Legende</div><div style="font-size:13px;color:var(--text-muted)">Rekord-Siegesserie: ${maxStreak} Siege in Folge! Einmal Feuer, immer Feuer.</div></div></div>`);
   if (clutchKing) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px;filter:drop-shadow(0 0 10px rgba(226,184,84,0.4))">👑</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${clutchKing.name} ist der Clutch-King</div><div style="font-size:13px;color:var(--text-muted)">Gewinnt ${(maxClutch*100).toFixed(0)}% seiner Final-Teilnahmen. Pure Nervenstärke!</div></div></div>`);
   if (pechvogel && pechvogel.id !== clutchKing?.id) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">📉</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${pechvogel.name} ist der Pechvogel</div><div style="font-size:13px;color:var(--text-muted)">Geht in ${(maxPech*100).toFixed(0)}% seiner Final-Teilnahmen als Verlierer hervor.</div></div></div>`);
   if (sniper) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🎯</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${sniper.name} ist der Sniper</div><div style="font-size:13px;color:var(--text-muted)">Trifft fast immer: Höchste Siegrate mit ${maxWinrate}%.</div></div></div>`);
   if (opfer) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💀</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${opfer.name} als Kanonenfutter</div><div style="font-size:13px;color:var(--text-muted)">Fliegt in ${(maxOpferRate*100).toFixed(0)}% der Spiele als Erster raus.</div></div></div>`);
+  if (marathon) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🏃</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${marathon.name} ist der Marathon-Mann</div><div style="font-size:13px;color:var(--text-muted)">Höchste Anwesenheitsquote – immer dabei, immer engagiert.</div></div></div>`);
+  if (phantom) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">👻</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${phantom.name} ist das Phantom</div><div style="font-size:13px;color:var(--text-muted)">Schon länger nicht mehr am Tisch gesehen. Wo bist du geblieben?</div></div></div>`);
+  if (geizkragen) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🦀</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${geizkragen.name} ist der Geizkragen</div><div style="font-size:13px;color:var(--text-muted)">Taucht auf, macht nie was Besonderes – und geht als Mittelfeld heim.</div></div></div>`);
   if (richest && stats(richest.id, fSess).bal > 0) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💰</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${richest.name} ist der High Roller</div><div style="font-size:13px;color:var(--text-muted)">Größter Profit am Tisch.</div></div></div>`);
   if (brokest && stats(brokest.id, fSess).bal < 0) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">💸</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${brokest.name} ist der Sponsor</div><div style="font-size:13px;color:var(--text-muted)">Versorgt die anderen Spieler brav mit Geld.</div></div></div>`);
   
   if (awHtml.length===0) awHtml.push('<div style="font-size:13px;color:var(--text-dim);text-align:center;padding:12px;">Es wurden in dieser Saison noch nicht genug Runden für Awards gespielt.</div>');
   document.getElementById('stats-awards').innerHTML = awHtml.join('<div style="height:1px;background:var(--border-light);margin:4px 0;"></div>');
+
+  // Populate H2H selects
+  const h2h1 = document.getElementById('h2h-p1'), h2h2 = document.getElementById('h2h-p2');
+  if (h2h1 && h2h2) {
+    const h2hOpts = withGames.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    h2h1.innerHTML = h2hOpts; h2h2.innerHTML = h2hOpts;
+    if (withGames.length > 1) { h2h1.value = withGames[0].id; h2h2.value = withGames[1].id; renderH2H(); }
+  }
 
   // Populate Radar Chart Selects
   const p1Sel = document.getElementById('radar-p1');
@@ -1330,17 +1751,21 @@ function showSubTab(tab) {
   document.getElementById('stab-pl').classList.toggle('active', tab === 'players');
   document.getElementById('stab-sn').classList.toggle('active', tab === 'seasons');
   document.getElementById('stab-sec').classList.toggle('active', tab === 'security');
+  document.getElementById('stab-th').classList.toggle('active', tab === 'theme');
   document.getElementById('sub-pl-cont').style.display  = tab === 'players'  ? '' : 'none';
   document.getElementById('sub-sn-cont').style.display  = tab === 'seasons'  ? '' : 'none';
   document.getElementById('sub-sec-cont').style.display = tab === 'security' ? '' : 'none';
+  document.getElementById('sub-th-cont').style.display  = tab === 'theme'    ? '' : 'none';
   const btn = document.getElementById('pl-act-btn');
   if (tab === 'players')  { btn.style.display=''; btn.textContent='+ Spieler'; btn.onclick = openAddPlayer; }
   else if (tab === 'seasons') { btn.style.display=''; btn.textContent='+ Saison'; btn.onclick = openAddSeason; }
   else { btn.style.display = 'none'; }
   if (tab === 'players')  renderPlayersTab();
   else if (tab === 'seasons') renderSeasonsTab();
-  else {
-    // Populate PIN field with current value
+  else if (tab === 'theme') {
+    const curTheme = localStorage.getItem('schnauz_theme') || 'classic';
+    ['classic','neon','light'].forEach(k => document.getElementById(`th-btn-${k}`)?.classList.toggle('on', k===curTheme));
+  } else {
     const pinInp = document.getElementById('set-pin-input');
     const msg = document.getElementById('pin-status-msg');
     if (pinInp) pinInp.value = '';
@@ -1354,14 +1779,24 @@ function plViewAction() { if(playerSubTab==='players')openAddPlayer();else if(pl
 function renderPlayersTab() {
   const el=document.getElementById('pl-list');
   if (!db.players.length){el.innerHTML=emptyState('👥','Noch keine Spieler','Füge deinen ersten Spieler hinzu!');return;}
+  const fSess = filteredSessions();
+  const streaks = computeStreaks(db.sessions);
   el.innerHTML=db.players.map(p=>{
     const s=allTimeStats(p.id);
     const bc=s.bal>0?'pos':s.bal<0?'neg':'zer';
+    const cur = streaks.cur[p.id] || 0;
+    const streakHtml = cur >= 2 ? `<span class="streak-fire" title="${cur}er Siegesserie!">${'🔥'.repeat(Math.min(cur,4))}</span>` : '';
+    const avInner = p.emoji ? p.emoji : initials(p.name);
+    const avExtra = p.emoji ? 'has-emoji' : '';
     return `
       <div class="pl-item">
-        <div class="avatar av-40 ${avatarClass(p.id)}">${initials(p.name)}</div>
-        <div class="pl-info"><div class="pl-name">${p.name}</div><div class="pl-meta">${s.games} Sp. · ${s.wins} Siege · ${s.winRate}% (gesamt)</div></div>
+        <div class="avatar av-40 ${avatarClass(p.id)} ${avExtra}" onclick="openEmojiEdit('${p.id}')" style="cursor:pointer;" title="Avatar ändern">${avInner}</div>
+        <div class="pl-info">
+          <div class="pl-name">${p.name} ${streakHtml}</div>
+          <div class="pl-meta">${s.games} Sp. · ${s.wins} Siege · ${s.winRate}% (gesamt)</div>
+        </div>
         <div class="pl-bal ${bc}">${fmtMoney(s.bal)}</div>
+        <button class="btn btn-ghost btn-sm" onclick="openProfile('${p.id}')" title="Profil">👤</button>
         <button class="btn btn-secondary btn-icon" onclick="confirmDelPlayer('${p.id}')" title="Löschen">🗑️</button>
       </div>`;
   }).join('');
@@ -1562,6 +1997,12 @@ document.querySelectorAll('.modal-wrap').forEach(el=>{el.addEventListener('click
 
 function openAddPlayer() {
   document.getElementById('inp-pname').value='';
+  selectedAddEmoji = null;
+  // Build emoji picker
+  const grid = document.getElementById('add-player-emoji-grid');
+  if (grid) grid.innerHTML = PLAYER_EMOJIS.map(e =>
+    `<div class="emoji-opt" onclick="this.closest('.emoji-grid').querySelectorAll('.emoji-opt').forEach(x=>x.classList.remove('on'));this.classList.add('on');selectedAddEmoji='${e}';" data-val="${e}">${e}</div>`
+  ).join('');
   openModal('modal-add-player');
   setTimeout(()=>document.getElementById('inp-pname').focus(),200);
 }
@@ -1569,7 +2010,9 @@ function submitPlayer() {
   const name=document.getElementById('inp-pname').value.trim();
   if(!name){toast('Bitte Namen eingeben','err');return;}
   if(db.players.some(p=>p.name.toLowerCase()===name.toLowerCase())){toast('Spieler existiert bereits','err');return;}
-  db.players.push({id:uid(),name});save();closeModal('modal-add-player');renderPlayersTab();
+  const sel = document.querySelector('#add-player-emoji-grid .emoji-opt.on');
+  const emoji = sel ? sel.dataset.val : null;
+  db.players.push({id:uid(),name,emoji:emoji||null});save();closeModal('modal-add-player');renderPlayersTab();
   toast(`✅ ${name} hinzugefügt!`,'ok');
 }
 document.getElementById('inp-pname').addEventListener('keydown',e=>{if(e.key==='Enter')submitPlayer();});
@@ -1682,6 +2125,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape')document.querySelec
    BOOT
 ════════════════════════════════════ */
 async function boot() {
+  loadTheme();
   document.getElementById('hdr-date').textContent =
     new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
     
