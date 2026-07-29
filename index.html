@@ -313,7 +313,7 @@
     <div class="header-inner">
       <div class="header-brand">
         <span class="brand-icon">🃏</span>
-        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.1.0</small></span>
+        <span class="brand-name">Schnauz <small style="font-size: 0.5em; color: var(--text-dim); margin-left: 4px;">v1.1.1</small></span>
         <span id="sync-status" style="font-size:10px; color:var(--text-dim); margin-left:8px;" title="Cloud Status">☁️...</span>
       </div>
       <span class="header-date" id="hdr-date"></span>
@@ -587,7 +587,7 @@ let db = { players: [], sessions: [], seasons: [], settings: { adminPin: null } 
 let filterSeasonId = '__all__';
 let playerSubTab   = 'players';
 let currentView    = 'dashboard';
-let wiz = { step:1, date:'', stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:null };
+let wiz = { step:1, date:'', stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:null, flawless:false };
 
 const SUPA_URL = 'https://hbtqposetokatdswcxdy.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhidHFwb3NldG9rYXRkc3djeGR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3OTg2ODYsImV4cCI6MjEwMDM3NDY4Nn0.DFb7SpmrmTL8GmbdkrCCNw5pyWJRQ6ENPmAB5-5O1lE';
@@ -824,6 +824,7 @@ function computeStats(pid, sessions, importBase) {
   const base = importBase || {};
   const ps = sessions.filter(s => s.participants.includes(pid));
   const sessionWins    = ps.filter(s => s.winner    === pid).length;
+  const sessionFlawless= ps.filter(s => s.winner    === pid && s.flawless).length;
   const sessionFirsts  = ps.filter(s => s.firstOut  === pid).length;
   const sessionFinal   = ps.filter(s => s.finalists.includes(pid)).length;
   let sessionBal = 0;
@@ -836,7 +837,7 @@ function computeStats(pid, sessions, importBase) {
   const firsts   = (base.firsts   || 0) + sessionFirsts;
   const finalist = (base.finalist || 0) + sessionFinal;
   const bal      = (base.bal      || 0) + sessionBal;
-  return { games, wins, firsts, finalist, bal, winRate: games > 0 ? Math.round(wins/games*100) : 0 };
+  return { games, wins, firsts, finalist, bal, winRate: games > 0 ? Math.round(wins/games*100) : 0, flawlessWins: sessionFlawless };
 }
 
 /** Stats using the current season filter */
@@ -998,7 +999,7 @@ function sessItem(s, showSeason=false) {
     <div class="sess-item" onclick="openSessDetail('${s.id}')">
       <div class="sess-datebox"><div class="sess-day">${day}</div><div class="sess-mon">${mon}</div></div>
       <div class="sess-info">
-        <div class="sess-win">🏆 ${w?w.name:'?'} ${showSeason&&sn?`<span class="badge b-muted" style="font-size:9px">${sn.name}</span>`:''}</div>
+        <div class="sess-win">🏆 ${w?w.name:'?'} ${s.flawless?'<span title="Ungeschlagen (Clean Sheet)">🛡️</span>':''} ${showSeason&&sn?`<span class="badge b-muted" style="font-size:9px">${sn.name}</span>`:''}</div>
         <div class="sess-names">${names}</div>
       </div>
       <div class="text-right">
@@ -1014,9 +1015,9 @@ function sessItem(s, showSeason=false) {
 function initWiz(editSess=null) {
   const defSeason = (filterSeasonId!=='__all__'?filterSeasonId:null) || activeSeasonId();
   if (editSess) {
-    wiz = { step:1, date:editSess.date, stake:editSess.stake, participants:[...editSess.participants], firstOut:editSess.firstOut, finalists:[...editSess.finalists], winner:editSess.winner, editId:editSess.id, seasonId:editSess.seasonId||defSeason };
+    wiz = { step:1, date:editSess.date, stake:editSess.stake, participants:[...editSess.participants], firstOut:editSess.firstOut, finalists:[...editSess.finalists], winner:editSess.winner, editId:editSess.id, seasonId:editSess.seasonId||defSeason, flawless:editSess.flawless||false };
   } else {
-    wiz = { step:1, date:todayStr(), stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:defSeason };
+    wiz = { step:1, date:todayStr(), stake:20, participants:[], firstOut:null, finalists:[], winner:null, editId:null, seasonId:defSeason, flawless:false };
   }
 }
 
@@ -1066,11 +1067,12 @@ function renderWizard() {
     const finCand=parts.filter(p=>p.id!==wiz.firstOut);
     const finHtml=wiz.firstOut?`<div class="form-group"><label class="form-label">🎯 2 Finalisten (${wiz.finalists.length}/2)</label><div class="res-list">${finCand.map(p=>{const sel=wiz.finalists.includes(p.id),dis=!sel&&wiz.finalists.length>=2;return`<div class="res-item ${sel?'r-finalist':''} ${dis?'r-disabled':''}" onclick="${dis?'':(`toggleFin('${p.id}')`)}">${`<div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div><div class="res-name">${p.name}</div>${sel?'<span class="badge b-info">Finalist</span>':''}`}</div>`;}).join('')}</div></div>`:'';
     const winHtml=wiz.finalists.length>=2?`<div class="form-group"><label class="form-label">🏆 Wer hat gewonnen?</label><div class="res-list">${wiz.finalists.map(id=>{const p=player(id);if(!p)return'';return`<div class="res-item ${wiz.winner===p.id?'r-winner':''}" onclick="selWinner('${p.id}')"><div class="avatar av-32 ${avatarClass(p.id)}">${initials(p.name)}</div><div class="res-name">${p.name}</div>${wiz.winner===p.id?'<span class="badge b-gold">🏆 Sieger</span>':''}</div>`;}).join('')}</div></div>`:'';
+    const flawlessHtml=wiz.winner?`<div class="form-group" style="margin-top:16px;background:var(--bg);border:1px solid var(--border-light);border-radius:var(--r);padding:14px;"><label style="display:flex;align-items:center;gap:12px;font-size:14px;font-weight:600;cursor:pointer"><input type="checkbox" ${wiz.flawless?'checked':''} onchange="wiz.flawless=this.checked" style="width:20px;height:20px;accent-color:var(--accent)"> 🛡️ Ungeschlagen gewonnen (ohne Leben zu verlieren)</label></div>`:'';
     const pot=wiz.stake*wiz.participants.length, canSave=wiz.firstOut&&wiz.finalists.length>=2&&wiz.winner;
     body=`
       <div class="wiz-head"><div class="wiz-ttl">${wiz.editId?'Bearbeiten':'Ergebnis eintragen'}</div><div class="wiz-sub">${wiz.participants.length} Spieler · ${wiz.stake} Ct${sn?' · '+sn.name:''}</div></div>
       <div class="pot-preview"><div class="pot-lbl">💰 Gesamtpott</div><div class="pot-val">${(pot/100).toFixed(2).replace('.',',')} €</div><div class="pot-sub">${wiz.participants.length} × ${wiz.stake} Ct${sn?' · '+sn.name:''}</div></div>
-      ${foHtml}${finHtml}${winHtml}
+      ${foHtml}${finHtml}${winHtml}${flawlessHtml}
       <div class="row gap-10 mt-16"><button class="btn btn-secondary" style="flex:1" onclick="wizBack()">← Zurück</button><button class="btn btn-primary" style="flex:2" onclick="submitSess()" ${!canSave?'disabled style="opacity:.5"':''}>${wiz.editId?'💾 Speichern':'🎉 Runde speichern'}</button></div>`;
   }
 
@@ -1101,7 +1103,7 @@ function toggleFin(id) { const i=wiz.finalists.indexOf(id);if(i>=0){wiz.finalist
 function selWinner(id) { wiz.winner=id;renderWizard(); }
 function submitSess() {
   if (!wiz.firstOut||wiz.finalists.length<2||!wiz.winner){toast('Bitte alle Felder ausfüllen','err');return;}
-  const sess={id:wiz.editId||uid(),date:wiz.date,stake:wiz.stake,participants:[...wiz.participants],firstOut:wiz.firstOut,finalists:[...wiz.finalists],winner:wiz.winner,seasonId:wiz.seasonId||activeSeasonId(),ts:Date.now()};
+  const sess={id:wiz.editId||uid(),date:wiz.date,stake:wiz.stake,participants:[...wiz.participants],firstOut:wiz.firstOut,finalists:[...wiz.finalists],winner:wiz.winner,seasonId:wiz.seasonId||activeSeasonId(),flawless:wiz.flawless,ts:Date.now()};
   if(wiz.editId){const i=db.sessions.findIndex(s=>s.id===wiz.editId);if(i>=0)db.sessions[i]=sess;toast('✅ Runde aktualisiert!','ok');}
   else{db.sessions.push(sess);toast('🎉 Runde gespeichert!','ok');}
   save();initWiz();navigate('dashboard');
@@ -1127,11 +1129,14 @@ function calculateBadges(fSess, withGames) {
   let sniper = null, maxWinrate = -1;
   let opfer = null, maxOpferRate = -1;
   let richest = null, brokest = null;
+  let unantastbar = null, maxFlawless = 0;
   
   for (const p of withGames) {
     const s = stats(p.id, fSess);
     if (!richest || s.bal > stats(richest.id, fSess).bal) richest = p;
     if (!brokest || s.bal < stats(brokest.id, fSess).bal) brokest = p;
+
+    if (s.flawlessWins > maxFlawless) { maxFlawless = s.flawlessWins; unantastbar = p; }
 
     const finals = s.wins + s.finalist;
     if (finals >= 3) {
@@ -1162,13 +1167,14 @@ function calculateBadges(fSess, withGames) {
     if (nemId && maxLoss >= 3) { nemesisMap[p.id] = player(nemId); }
   }
 
-  return { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, nemesisMap };
+  return { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless, nemesisMap };
 }
 
 function getPlayerBadgesHTML(pId, badgesData, fSess) {
-  const { clutchKing, pechvogel, sniper, opfer, richest, brokest, nemesisMap } = badgesData;
+  const { clutchKing, pechvogel, sniper, opfer, richest, brokest, unantastbar, nemesisMap } = badgesData;
   const badges = [];
   const s = stats(pId, fSess);
+  if (unantastbar && pId === unantastbar.id) badges.push('<span class="bdg" title="Unantastbar: Die meisten makellosen Siege (Clean Sheets)">🛡️</span>');
   if (clutchKing && pId === clutchKing.id) badges.push('<span class="bdg" title="Clutch-King: Gewinnt seine Finals fast immer">👑</span>');
   if (pechvogel && pId === pechvogel.id && pechvogel.id !== clutchKing?.id) badges.push('<span class="bdg" title="Pechvogel: Fliegt meistens im Finale">📉</span>');
   if (sniper && pId === sniper.id) badges.push('<span class="bdg" title="Sniper: Höchste Siegrate (min. 5 Spiele)">🎯</span>');
@@ -1196,7 +1202,7 @@ function renderStats() {
   const agg=getAggregateTotals();
   
   const badgesData = calculateBadges(fSess, withGames);
-  const { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest } = badgesData;
+  const { clutchKing, maxClutch, pechvogel, maxPech, sniper, maxWinrate, opfer, maxOpferRate, richest, brokest, unantastbar, maxFlawless } = badgesData;
 
   document.getElementById('stats-highlights').innerHTML=`
     <div class="hi-card"><div class="hi-ico">🏆</div><div class="hi-lbl">Meiste Siege</div><div class="hi-val">${sniper?sniper.name:'–'}</div><div class="hi-sub">${sniper?stats(sniper.id,fSess).wins+' Siege':''}</div></div>
@@ -1211,7 +1217,7 @@ function renderStats() {
     tbody.innerHTML=rows.map(({p,s})=>`
       <tr>
         <td><div class="row gap-8"><div class="avatar av-28 ${avatarClass(p.id)}">${initials(p.name)}</div><strong>${p.name}</strong>${getPlayerBadgesHTML(p.id, badgesData, fSess)}</div></td>
-        <td>${s.games}</td><td><strong>${s.wins}</strong></td>
+        <td>${s.games}</td><td><strong>${s.wins}</strong>${s.flawlessWins > 0 ? `<span style="font-size:10px;margin-left:4px;color:var(--accent)" title="${s.flawlessWins}x Ungeschlagen (Clean Sheet)">🛡️ ${s.flawlessWins}</span>`:''}</td>
         <td>${s.winRate}%<span class="winbar"><span class="winbar-fill" style="width:${s.winRate}%"></span></span></td>
         <td style="color:var(--danger)">${s.firsts}</td>
         <td>${s.finalist}</td>
@@ -1221,6 +1227,7 @@ function renderStats() {
 
   // Render Awards UI
   const awHtml = [];
+  if (unantastbar) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🛡️</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${unantastbar.name} ist Unantastbar</div><div style="font-size:13px;color:var(--text-muted)">Meiste ungeschlagene Runden (${maxFlawless}x Clean Sheet). Ein absoluter Durchmarsch.</div></div></div>`);
   if (clutchKing) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px;filter:drop-shadow(0 0 10px rgba(226,184,84,0.4))">👑</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${clutchKing.name} ist der Clutch-King</div><div style="font-size:13px;color:var(--text-muted)">Gewinnt ${(maxClutch*100).toFixed(0)}% seiner Final-Teilnahmen. Pure Nervenstärke!</div></div></div>`);
   if (pechvogel && pechvogel.id !== clutchKing?.id) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">📉</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${pechvogel.name} ist der Pechvogel</div><div style="font-size:13px;color:var(--text-muted)">Geht in ${(maxPech*100).toFixed(0)}% seiner Final-Teilnahmen als Verlierer hervor.</div></div></div>`);
   if (sniper) awHtml.push(`<div style="display:flex;gap:12px;align-items:center;"><div style="font-size:32px">🎯</div><div><div style="font-size:15px;font-weight:800;color:var(--text)">${sniper.name} ist der Sniper</div><div style="font-size:13px;color:var(--text-muted)">Trifft fast immer: Höchste Siegrate mit ${maxWinrate}%.</div></div></div>`);
