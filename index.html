@@ -796,6 +796,16 @@ async function load() {
     save();
   }
 
+  // Auto-assign emojis to players who don't have one yet (migration for v1.2.0)
+  let updatedEmojis = false;
+  db.players.forEach((p, i) => {
+    if (!p.emoji) {
+      p.emoji = PLAYER_EMOJIS[i % PLAYER_EMOJIS.length];
+      updatedEmojis = true;
+    }
+  });
+  if (updatedEmojis) save();
+
   try { localStorage.setItem(STORE, JSON.stringify(db)); } catch(e){}
 
   // 4. Realtime updates
